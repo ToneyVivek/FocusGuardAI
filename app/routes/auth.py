@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from slowapi import Limiter
 
 from app.core.security import create_access_token
 from app.dependencies.deps import get_current_user, get_db

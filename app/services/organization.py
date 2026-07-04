@@ -2,12 +2,12 @@ from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.logging_config import get_logger
+import logging
 from app.models.models import Organization, User
 from app.schemas.schemas import OrganizationCreate
 from app.services.audit import create_audit_log
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def create_organization_with_admin(
@@ -49,13 +49,16 @@ def create_organization_with_admin(
         db.commit()
         db.refresh(db_org)
         
-        create_audit_log(
-            db=db,
-            action="organization_created",
-            user_id=admin.id,
-            organization_id=db_org.id,
-            metadata={"organization_name": db_org.organization_name},
-        )
+        try:
+            create_audit_log(
+                db=db,
+                action="organization_created",
+                user_id=admin.id,
+                organization_id=db_org.id,
+                metadata={"organization_name": db_org.organization_name},
+            )
+        except Exception as e:
+            logger.error(f"Failed to create audit log for organization creation: {e}")
         
         logger.info(
             "Organization created and admin linked: %s (ID: %s, Admin: %s)",

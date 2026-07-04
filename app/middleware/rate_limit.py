@@ -1,12 +1,12 @@
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 
-from app.core.logging_config import get_logger
+import logging
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # Initialize rate limiter with in-memory storage
 limiter = Limiter(key_func=get_remote_address)

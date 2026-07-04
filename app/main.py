@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.config.config import settings
 from app.core.logging_config import setup_logging
+import logging
 from app.dependencies.deps import get_db
 from app.middleware.errors import (
     db_integrity_error_handler,
@@ -18,6 +20,7 @@ from app.routes import admin, auth, organization
 
 # Initialize centralized logging
 setup_logging()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -50,18 +53,8 @@ api_v1_router.include_router(admin.router)
 app.include_router(api_v1_router)
 
 
-@app.get("/")
-def read_root():
-    """Service status health check endpoint."""
-    return {
-        "status": "online",
-        "service": settings.PROJECT_NAME,
-        "version": "1.0.0",
-    }
-
-
 @app.get("/health")
-def health_check():
+def health_check() -> dict[str, object]:
     """
     Health check endpoint for load balancers and monitoring systems.
     Returns service health status without dependency checks.
@@ -74,14 +67,14 @@ def health_check():
 
 
 @app.get("/ready")
-def readiness_check(db: Session = Depends(get_db)):
+def readiness_check(db: Session = Depends(get_db)) -> dict[str, object]:
     """
     Readiness check endpoint with database connectivity verification.
     Returns service readiness status with dependency health.
     """
     try:
         # Test database connection
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         return {
             "status": "ready",
             "service": settings.PROJECT_NAME,
@@ -91,8 +84,6 @@ def readiness_check(db: Session = Depends(get_db)):
             },
         }
     except Exception as e:
-        from app.core.logging_config import get_logger
-        logger = get_logger(__name__)
         logger.error(f"Readiness check failed: {e}")
         return {
             "status": "not_ready",

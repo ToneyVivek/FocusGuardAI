@@ -4,13 +4,13 @@ from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.logging_config import get_logger
+import logging
 from app.core.security import get_password_hash, verify_password
 from app.core.string_utils import normalize_email
 from app.models.models import User, UserRole
 from app.services.audit import create_audit_log
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def _get_active_user_by_email(db: Session, email: str) -> Optional[User]:
@@ -37,30 +37,39 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     user = _get_active_user_by_email(db, normalized_email)
     
     if not user:
-        create_audit_log(
-            db=db,
-            action="login_failed",
-            metadata={"email": normalized_email, "reason": "user_not_found"},
-        )
+        try:
+            create_audit_log(
+                db=db,
+                action="login_failed",
+                metadata={"email": normalized_email, "reason": "user_not_found"},
+            )
+        except Exception as e:
+            logger.error(f"Failed to create audit log for login failure: {e}")
         return None
     
     if not verify_password(password, user.hashed_password):
-        create_audit_log(
-            db=db,
-            action="login_failed",
-            user_id=user.id,
-            organization_id=user.organization_id,
-            metadata={"email": normalized_email, "reason": "invalid_password"},
-        )
+        try:
+            create_audit_log(
+                db=db,
+                action="login_failed",
+                user_id=user.id,
+                organization_id=user.organization_id,
+                metadata={"email": normalized_email, "reason": "invalid_password"},
+            )
+        except Exception as e:
+            logger.error(f"Failed to create audit log for login failure: {e}")
         return None
     
-    create_audit_log(
-        db=db,
-        action="login_success",
-        user_id=user.id,
-        organization_id=user.organization_id,
-        metadata={"email": normalized_email},
-    )
+    try:
+        create_audit_log(
+            db=db,
+            action="login_success",
+            user_id=user.id,
+            organization_id=user.organization_id,
+            metadata={"email": normalized_email},
+        )
+    except Exception as e:
+        logger.error(f"Failed to create audit log for login success: {e}")
     
     return user
 
@@ -109,6 +118,9 @@ def create_employee_user(
     """
     Internal service function — creates an employee linked to an organization.
     Only callable from the invitation onboarding flow, never from public registration.
+    
+    IMPORTANT: This function does NOT commit. The caller must handle transaction lifecycle.
+    This ensures the user creation and invitation marking happen atomically.
     """
     normalized_email = normalize_email(email)
     
@@ -127,7 +139,7 @@ def create_employee_user(
         is_active=True,
     )
     db.add(db_user)
-    db.commit()
+    db.flush()
     db.refresh(db_user)
     logger.info(
         "Employee user created: %s (ID: %s, Org: %s)",

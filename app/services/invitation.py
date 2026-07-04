@@ -1,10 +1,10 @@
 import secrets
+from datetime import datetime, timezone, timedelta
 
 from fastapi import BackgroundTasks, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.datetime_utils import ensure_utc_aware, utc_now, utc_now_plus
-from app.core.logging_config import get_logger
+import logging
 from app.core.string_utils import normalize_email
 from app.dependencies.deps import verify_tenant_access
 from app.models.models import Invitation, Organization, User
@@ -13,9 +13,18 @@ from app.services.audit import create_audit_log
 from app.services.auth import create_employee_user
 from app.services.email import send_invitation_email
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 INVITATION_EXPIRY_HOURS = 24
+
+
+def _ensure_utc_aware(dt: datetime) -> datetime:
+    """Normalize a datetime to timezone-aware UTC.
+    SQLite may return naive datetimes even for timezone=True columns.
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def create_user_invitation(
@@ -74,7 +83,7 @@ def create_user_invitation(
     db.commit()
 
     token = secrets.token_urlsafe(32)
-    expires_at = utc_now_plus(hours=INVITATION_EXPIRY_HOURS)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=INVITATION_EXPIRY_HOURS)
 
     db_invite = Invitation(
         email=normalized_email,
@@ -89,19 +98,19 @@ def create_user_invitation(
     db.commit()
     db.refresh(db_invite)
 
-    background_tasks.add_task(
-        send_invitation_email,
-        to_email=normalized_email,
-        org_name=org.organization_name,
-        token=token,
-    )
-
     create_audit_log(
         db=db,
         action="invitation_sent",
         user_id=invited_by_id,
         organization_id=organization_id,
         metadata={"email": normalized_email, "invitation_id": db_invite.id},
+    )
+
+    background_tasks.add_task(
+        send_invitation_email,
+        to_email=normalized_email,
+        org_name=org.organization_name,
+        token=token,
     )
 
     logger.info("User invitation queued for %s in organization %s", normalized_email, org.organization_name)
@@ -131,7 +140,7 @@ def process_onboarding_setup(db: Session, setup_in: OnboardingSetup) -> User:
             detail="This invitation token has already been used.",
         )
 
-    if ensure_utc_aware(invitation.expires_at) < utc_now():
+    if _ensure_utc_aware(invitation.expires_at) < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This invitation token has expired.",
@@ -162,13 +171,16 @@ def process_onboarding_setup(db: Session, setup_in: OnboardingSetup) -> User:
         db.commit()
         db.refresh(new_user)
         
-        create_audit_log(
-            db=db,
-            action="onboarding_completed",
-            user_id=new_user.id,
-            organization_id=new_user.organization_id,
-            metadata={"email": new_user.email, "invitation_id": invitation.id},
-        )
+        try:
+            create_audit_log(
+                db=db,
+                action="onboarding_completed",
+                user_id=new_user.id,
+                organization_id=new_user.organization_id,
+                metadata={"email": new_user.email, "invitation_id": invitation.id},
+            )
+        except Exception as e:
+            logger.error(f"Failed to create audit log for onboarding completion: {e}")
         
         logger.info(
             "User %s onboarded to organization ID %s",

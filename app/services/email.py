@@ -5,16 +5,16 @@ from email.mime.multipart import MIMEMultipart
 from fastapi import HTTPException, status
 
 from app.config.config import settings
-from app.core.logging_config import get_logger
+import logging
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 def send_invitation_email(to_email: str, org_name: str, token: str) -> None:
     """
     Sends an onboarding invitation email containing a secure link.
     If SMTP credentials are not configured, it logs and prints details for local development.
     """
-    invite_link = f"{settings.BASE_URL}/auth/complete-setup?token={token}"
+    invite_link = f"{settings.BASE_URL}/api/v1/auth/complete-setup?token={token}"
     subject = f"Invitation to join {org_name} on FocusGuard AI"
     
     html_content = f"""

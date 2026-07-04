@@ -1,10 +1,9 @@
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from typing import Any, Union, Optional
 import bcrypt
 from jose import jwt
 
 from app.config.config import settings
-from app.core.datetime_utils import utc_now, utc_now_plus
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -28,7 +27,8 @@ def create_access_token(
     expires_delta: Optional[timedelta] = None,
 ) -> str:
     """Generates a signed JWT access token containing subject, user_id, role, and type claims."""
-    expire = utc_now() + expires_delta if expires_delta else utc_now_plus(
+    now = datetime.now(timezone.utc)
+    expire = now + expires_delta if expires_delta else now + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
 

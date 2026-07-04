@@ -1,10 +1,10 @@
 import enum
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, DateTime, Enum as SQLEnum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from app.core.datetime_utils import utc_now
 from app.database.session import Base
 
 
@@ -27,11 +27,14 @@ class SoftDeleteMixin:
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     def soft_delete(self, db):
-        """Soft-deletes the record by setting is_deleted=True and tracking time."""
+        """Soft-deletes the record by setting is_deleted=True and tracking time.
+        
+        IMPORTANT: This method does NOT commit. The caller must handle transaction lifecycle.
+        """
         self.is_deleted = True
-        self.deleted_at = utc_now()
+        self.deleted_at = datetime.now(timezone.utc)
         db.add(self)
-        db.commit()
+        db.flush()
 
 
 class User(Base, TimestampMixin, SoftDeleteMixin):

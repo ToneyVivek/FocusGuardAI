@@ -1,17 +1,9 @@
 from datetime import datetime
-from typing import Optional, Generic, TypeVar
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.models import UserRole
-
-DataType = TypeVar("DataType")
-
-
-class APIResponse(BaseModel, Generic[DataType]):
-    success: bool = True
-    message: str = "Operation completed successfully"
-    data: Optional[DataType] = None
 
 
 # ----------------- User Schemas -----------------

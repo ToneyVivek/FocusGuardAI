@@ -3,9 +3,9 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import IntegrityError
 
-from app.core.logging_config import get_logger
+import logging
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 async def db_integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
     """Handles SQLAlchemy database integrity exceptions (e.g. duplicate keys)."""

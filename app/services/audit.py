@@ -3,10 +3,10 @@ from typing import Optional, Any
 
 from sqlalchemy.orm import Session
 
-from app.core.logging_config import get_logger
+import logging
 from app.models.models import AuditLog
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def create_audit_log(
@@ -19,6 +19,9 @@ def create_audit_log(
     """
     Creates an audit log entry for security-relevant events.
     
+    IMPORTANT: This function does NOT commit. The caller must handle transaction lifecycle.
+    This ensures audit logs participate in the parent transaction and can be rolled back.
+    
     Args:
         db: Database session
         action: Action type (e.g., "user_login", "org_created", "invitation_sent")
@@ -27,7 +30,7 @@ def create_audit_log(
         metadata: Additional context data as a dictionary
         
     Returns:
-        Created AuditLog instance
+        Created AuditLog instance (not yet committed)
     """
     metadata_json = json.dumps(metadata) if metadata else None
     
@@ -39,8 +42,7 @@ def create_audit_log(
     )
     
     db.add(audit_log)
-    db.commit()
-    db.refresh(audit_log)
+    db.flush()  # Flush to get ID but do NOT commit
     
     logger.info(
         "Audit log created: action=%s, user_id=%s, organization_id=%s",

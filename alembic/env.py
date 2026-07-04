@@ -36,10 +36,10 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    # Force SQLite for development to avoid PostgreSQL connection issues
-    database_url = "sqlite:///./focusguard.db"
+    # Use settings.DATABASE_URL for consistency with application
+    database_url = settings.DATABASE_URL
     
-    # Create engine directly from settings.DATABASE_URL
+    # Create engine directly from settings
     connectable = create_engine(
         database_url,
         poolclass=pool.NullPool,

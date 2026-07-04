@@ -4,16 +4,17 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.config.config import settings
-from app.core.logging_config import get_logger
+import logging
 from app.database.session import SessionLocal
 from app.models.models import User, UserRole
 from app.schemas.schemas import TokenData
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -75,16 +76,6 @@ def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: Admin privileges required",
-        )
-    return current_user
-
-
-def require_organization_member(current_user: User = Depends(get_current_user)) -> User:
-    """Dependency requiring the user to belong to an organization (tenant context)."""
-    if current_user.organization_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You must belong to an organization to access this resource.",
         )
     return current_user
 
