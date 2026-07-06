@@ -1,5 +1,5 @@
 import os
-from pydantic import field_validator, ValidationError
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
 
     # Database Configuration
-    DATABASE_URL: str = "sqlite:///./focusguard.db"
+    DATABASE_URL: str = ""
 
     # Security & Tokens
     JWT_SECRET: str = ""
@@ -98,16 +98,4 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
 
-def load_settings() -> Settings:
-    """Load and validate settings with clear error messages."""
-    try:
-        return Settings()
-    except ValidationError as e:
-        error_msg = "Configuration validation failed:\n"
-        for error in e.errors():
-            field = " -> ".join(str(loc) for loc in error["loc"])
-            error_msg += f"  - {field}: {error['msg']}\n"
-        raise RuntimeError(error_msg) from e
-
-
-settings = load_settings()
+settings = Settings()
