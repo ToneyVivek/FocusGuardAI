@@ -13,6 +13,28 @@ class UserRole(str, enum.Enum):
     EMPLOYEE = "EMPLOYEE"
 
 
+class WebsiteCategory(str, enum.Enum):
+    """Centralized website categorization system."""
+    DEVELOPMENT = "DEVELOPMENT"
+    EDUCATION = "EDUCATION"
+    SOCIAL_MEDIA = "SOCIAL_MEDIA"
+    ENTERTAINMENT = "ENTERTAINMENT"
+    PRODUCTIVITY = "PRODUCTIVITY"
+    COMMUNICATION = "COMMUNICATION"
+    AI_TOOL = "AI_TOOL"
+    NEWS = "NEWS"
+    SEARCH_ENGINE = "SEARCH_ENGINE"
+    SHOPPING = "SHOPPING"
+    OTHER = "OTHER"
+
+
+class ProductivityClassification(str, enum.Enum):
+    """Productivity classification independent of category."""
+    PRODUCTIVE = "PRODUCTIVE"
+    NON_PRODUCTIVE = "NON_PRODUCTIVE"
+    NEUTRAL = "NEUTRAL"
+
+
 class TimestampMixin:
     """Mixin to inject timezone-aware UTC created_at and updated_at datetime stamps."""
 

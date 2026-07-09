@@ -16,7 +16,7 @@ from app.middleware.errors import (
     validation_error_handler,
 )
 from app.middleware.rate_limit import limiter, custom_rate_limit_exceeded_handler
-from app.routes import admin, auth, organization
+from app.routes import admin, analytics, auth, organization
 
 # Initialize centralized logging
 setup_logging()
@@ -49,6 +49,7 @@ api_v1_router = APIRouter(prefix=settings.API_V1_STR)
 api_v1_router.include_router(auth.router)
 api_v1_router.include_router(organization.router)
 api_v1_router.include_router(admin.router)
+api_v1_router.include_router(analytics.router)
 
 app.include_router(api_v1_router)
 

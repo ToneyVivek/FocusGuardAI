@@ -7,6 +7,7 @@ from app.config.config import settings
 from app.database.session import Base
 # Import all model entities so metadata registration is complete
 from app.models.models import User, Organization, Invitation, AuditLog
+from app.models.analytics import BrowserActivity
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

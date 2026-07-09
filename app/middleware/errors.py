@@ -28,9 +28,21 @@ async def db_integrity_error_handler(request: Request, exc: IntegrityError) -> J
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     """Handles request body validation failures (Pydantic parsing failures)."""
     logger.warning(f"Request validation failure at {request.url}: {exc.errors()}")
+    
+    # Extract serializable error details (remove non-serializable objects)
+    errors = []
+    for error in exc.errors():
+        serializable_error = {
+            "type": error.get("type"),
+            "loc": error.get("loc"),
+            "msg": error.get("msg"),
+            "input": error.get("input"),
+        }
+        errors.append(serializable_error)
+    
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": exc.errors()}
+        content={"detail": errors}
     )
 
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
