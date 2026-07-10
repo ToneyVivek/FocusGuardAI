@@ -1,6 +1,6 @@
 import logging
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -8,7 +8,10 @@ from sqlalchemy.orm import Session
 from app.models.analytics import BrowserActivity
 from app.models.models import User
 from app.schemas.analytics_schemas import BrowserActivityCreate, BrowserActivityResponse
+from app.services.audit import create_audit_log
 from app.services.classification_service import classification_service
+from app.services.domain_normalization import domain_normalization_service
+from app.services.duplicate_detection import duplicate_detection_service
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,7 @@ def record_browser_activity(
         )
     
     # Classify website (backend business logic)
+    # Domain is already normalized by schema validation
     website_category, productivity_classification = classification_service.classify_website(
         activity_in.website_domain
     )
@@ -88,9 +92,50 @@ def record_browser_activity(
         duration_seconds=duration_seconds,  # Backend-calculated
     )
     
-    db.add(db_activity)
-    db.commit()
-    db.refresh(db_activity)
+    try:
+        db.add(db_activity)
+        db.commit()
+        db.refresh(db_activity)
+    except Exception as db_error:
+        # Check for unique constraint violation (duplicate activity)
+        if duplicate_detection_service.is_duplicate_error(db_error):
+            # Idempotent: Return existing record instead of failing
+            logger.info(
+                "Duplicate activity detected, checking for existing record: user_id=%s, domain=%s",
+                user.id,
+                activity_in.website_domain,
+            )
+            existing_activity = duplicate_detection_service.check_duplicate(
+                db=db,
+                user_id=user.id,
+                website_domain=activity_in.website_domain,
+                session_start_time=activity_in.session_start_time,
+                session_end_time=activity_in.session_end_time,
+            )
+            if existing_activity:
+                return BrowserActivityResponse.model_validate(existing_activity)
+        # Re-raise if not a duplicate error
+        raise db_error
+    
+    # Audit logging (non-blocking)
+    try:
+        create_audit_log(
+            db=db,
+            action="browser_activity_recorded",
+            user_id=user.id,
+            organization_id=user.organization_id,
+            metadata={
+                "domain": activity_in.website_domain,
+                "category": str(website_category),
+                "productivity": str(productivity_classification),
+                "duration": duration_seconds,
+            },
+        )
+        db.commit()  # Commit audit log separately
+    except Exception as audit_error:
+        # Audit logging failure should never crash the main request
+        logger.error(f"Audit logging failed for browser activity: {audit_error}", exc_info=True)
+        # Continue normally - activity was already recorded successfully
     
     logger.info(
         "Browser activity recorded: user_id=%s, org_id=%s, domain=%s, category=%s, productivity=%s, duration=%s",

@@ -4,6 +4,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.models import WebsiteCategory, ProductivityClassification
+from app.services.domain_normalization import domain_normalization_service
 
 
 class BrowserActivityCreate(BaseModel):
@@ -24,11 +25,22 @@ class BrowserActivityCreate(BaseModel):
     @field_validator("session_end_time")
     @classmethod
     def validate_session_timing(cls, v: datetime, info) -> datetime:
-        """Ensure session_end_time is after session_start_time."""
+        """
+        Ensure session_end_time is after session_start_time and within 24 hours.
+        
+        Validates:
+        1. session_end_time must be after session_start_time
+        2. Session duration cannot exceed 24 hours (86400 seconds)
+        """
         if "session_start_time" in info.data:
             start_time = info.data["session_start_time"]
             if v <= start_time:
                 raise ValueError("session_end_time must be after session_start_time")
+            
+            # Check maximum duration (24 hours)
+            duration_seconds = (v - start_time).total_seconds()
+            if duration_seconds > 86400:
+                raise ValueError("session duration cannot exceed 24 hours")
         return v
 
     @field_validator("website_url")
@@ -43,11 +55,13 @@ class BrowserActivityCreate(BaseModel):
     @field_validator("website_domain")
     @classmethod
     def validate_domain(cls, v: str) -> str:
-        """Basic domain validation and normalization."""
-        if "." not in v:
-            raise ValueError("website_domain must be a valid domain")
-        # Normalize: lowercase, strip whitespace, remove trailing dot
-        return v.lower().strip().rstrip(".")
+        """
+        Validate and normalize domain using centralized service.
+        
+        Uses DomainNormalizationService for consistent normalization across
+        all analytics operations.
+        """
+        return domain_normalization_service.normalize_domain(v)
 
 
 class BrowserActivityResponse(BaseModel):

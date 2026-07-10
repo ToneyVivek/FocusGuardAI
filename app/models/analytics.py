@@ -76,4 +76,7 @@ class BrowserActivity(Base, TimestampMixin):
         Index("idx_org_domain_time", "organization_id", "website_domain", "session_start_time"),
         # Time-range queries
         Index("idx_org_time_range", "organization_id", "session_start_time", "session_end_time"),
+        # Unique constraint for duplicate prevention (idempotency)
+        # Prevents duplicate records for same user, domain, and time range
+        Index("idx_unique_session", "user_id", "website_domain", "session_start_time", "session_end_time", unique=True),
     )

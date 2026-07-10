@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 
 from app.dependencies.deps import get_current_admin, get_current_user, get_db
+from app.middleware.rate_limit import limiter
 from app.models.models import User
 from app.schemas.analytics_schemas import BrowserActivityCreate, BrowserActivityResponse
 from app.services.analytics_service import (
@@ -18,7 +19,9 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
     response_model=BrowserActivityResponse,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("100/minute")
 def record_activity(
+    request: Request,
     activity_in: BrowserActivityCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -42,12 +45,15 @@ def record_activity(
     
     Authentication: JWT token required (Bearer token)
     Organization: Automatically extracted from authenticated user
+    Rate Limiting: 100 requests per minute per IP
     """
     return record_browser_activity(db=db, activity_in=activity_in, user=current_user)
 
 
 @router.get("/activity/my", response_model=list[BrowserActivityResponse])
+@limiter.limit("60/minute")
 def get_my_activities(
+    request: Request,
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db),
@@ -57,12 +63,18 @@ def get_my_activities(
     Retrieves the authenticated user's browser activities.
     
     Returns activities from the user's organization only.
+    
+    Authentication: JWT token required (Bearer token)
+    Organization: Automatically filtered by user's organization
+    Rate Limiting: 60 requests per minute per IP
     """
     return get_user_activities(db=db, user=current_user, limit=limit, offset=offset)
 
 
 @router.get("/activity/organization", response_model=list[BrowserActivityResponse])
+@limiter.limit("60/minute")
 def get_organization_activity(
+    request: Request,
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db),
