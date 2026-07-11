@@ -98,13 +98,17 @@ def create_user_invitation(
     db.commit()
     db.refresh(db_invite)
 
-    create_audit_log(
-        db=db,
-        action="invitation_sent",
-        user_id=invited_by_id,
-        organization_id=organization_id,
-        metadata={"email": normalized_email, "invitation_id": db_invite.id},
-    )
+    try:
+        create_audit_log(
+            db=db,
+            action="invitation_sent",
+            user_id=invited_by_id,
+            organization_id=organization_id,
+            metadata={"email": normalized_email, "invitation_id": db_invite.id},
+        )
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed to create audit log for invitation_sent: {e}")
 
     background_tasks.add_task(
         send_invitation_email,

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -86,11 +87,14 @@ def readiness_check(db: Session = Depends(get_db)) -> dict[str, object]:
         }
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")
-        return {
-            "status": "not_ready",
-            "service": settings.PROJECT_NAME,
-            "version": "1.0.0",
-            "dependencies": {
-                "database": "unhealthy",
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "service": settings.PROJECT_NAME,
+                "version": "1.0.0",
+                "dependencies": {
+                    "database": "unhealthy",
+                },
             },
-        }
+        )

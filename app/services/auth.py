@@ -43,6 +43,7 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
                 action="login_failed",
                 metadata={"email": normalized_email, "reason": "user_not_found"},
             )
+            db.commit()
         except Exception as e:
             logger.error(f"Failed to create audit log for login failure: {e}")
         return None
@@ -56,6 +57,7 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
                 organization_id=user.organization_id,
                 metadata={"email": normalized_email, "reason": "invalid_password"},
             )
+            db.commit()
         except Exception as e:
             logger.error(f"Failed to create audit log for login failure: {e}")
         return None
@@ -68,6 +70,7 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
             organization_id=user.organization_id,
             metadata={"email": normalized_email},
         )
+        db.commit()
     except Exception as e:
         logger.error(f"Failed to create audit log for login success: {e}")
     

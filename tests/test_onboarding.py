@@ -70,7 +70,7 @@ class TestOnboardingFlow:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 400
-        assert "already exists" in response.json()["detail"].lower()
+        assert "already associated" in response.json()["detail"].lower()
 
     def test_invite_employee(self, client: TestClient, test_user_data, test_organization_data):
         """Test employee invitation by admin."""

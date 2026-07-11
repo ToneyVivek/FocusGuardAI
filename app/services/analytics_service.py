@@ -3,10 +3,12 @@ import logging
 from datetime import datetime
 
 from fastapi import HTTPException, status
+from sqlalchemy import func, distinct, desc
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.analytics import BrowserActivity
-from app.models.models import User
+from app.models.models import User, WebsiteCategory, ProductivityClassification
 from app.schemas.analytics_schemas import BrowserActivityCreate, BrowserActivityResponse
 from app.services.audit import create_audit_log
 from app.services.classification_service import classification_service
@@ -96,8 +98,11 @@ def record_browser_activity(
         db.add(db_activity)
         db.commit()
         db.refresh(db_activity)
-    except Exception as db_error:
-        # Check for unique constraint violation (duplicate activity)
+    except IntegrityError as db_error:
+        # Rollback the failed transaction to reset session state
+        db.rollback()
+        
+        # Check if this is a unique constraint violation (duplicate activity)
         if duplicate_detection_service.is_duplicate_error(db_error):
             # Idempotent: Return existing record instead of failing
             logger.info(
@@ -114,6 +119,7 @@ def record_browser_activity(
             )
             if existing_activity:
                 return BrowserActivityResponse.model_validate(existing_activity)
+        
         # Re-raise if not a duplicate error
         raise db_error
     
@@ -221,3 +227,198 @@ def get_organization_activities(
     )
     
     return [BrowserActivityResponse.model_validate(activity) for activity in activities]
+
+
+def format_seconds_to_hhmmss(seconds: int) -> str:
+    """Helper to format duration in seconds as HH:MM:SS string."""
+    if seconds is None or seconds < 0:
+        return "00:00:00"
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    secs = seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def get_friendly_website_name(domain: str) -> str:
+    """Helper to map normalized domain to a friendly display name."""
+    mapping = {
+        "github.com": "GitHub",
+        "chat.openai.com": "ChatGPT",
+        "openai.com": "OpenAI",
+        "claude.ai": "Claude",
+        "google.com": "Google",
+        "youtube.com": "YouTube",
+        "facebook.com": "Facebook",
+        "linkedin.com": "LinkedIn",
+        "slack.com": "Slack",
+        "twitter.com": "Twitter",
+        "x.com": "X",
+    }
+    normalized = domain.lower().strip()
+    if normalized in mapping:
+        return mapping[normalized]
+    
+    parts = normalized.split('.')
+    if len(parts) >= 2:
+        if parts[0] in ("www", "mail", "api", "m"):
+            name = parts[1]
+        else:
+            name = parts[-2]
+    else:
+        name = normalized
+    
+    return name.capitalize()
+
+
+def compute_percentage(duration_seconds: int, total_time_seconds: int) -> float:
+    """Return duration share of total time, rounded to two decimal places."""
+    if not total_time_seconds:
+        return 0.0
+    return round((duration_seconds / total_time_seconds) * 100, 2)
+
+
+def get_user_analytics_summary(db: Session, user: User) -> dict:
+    """
+    Computes an aggregated productivity and activity summary for the user.
+    Calculations are performed on-demand directly via database aggregation.
+    """
+    if user.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User must belong to an organization to view analytics summary."
+        )
+
+    # 1. Total statistics
+    totals = (
+        db.query(
+            func.sum(BrowserActivity.duration_seconds).label("total_time"),
+            func.count(BrowserActivity.id).label("total_tab_switches"),
+            func.count(distinct(BrowserActivity.website_domain)).label("total_websites"),
+            func.max(BrowserActivity.session_end_time).label("last_activity_at"),
+        )
+        .filter(
+            BrowserActivity.user_id == user.id,
+            BrowserActivity.organization_id == user.organization_id
+        )
+        .first()
+    )
+
+    total_time_seconds = getattr(totals, "total_time", 0) or 0
+    total_tab_switches = getattr(totals, "total_tab_switches", 0) or 0
+    total_websites_visited = getattr(totals, "total_websites", 0) or 0
+    last_activity_at = getattr(totals, "last_activity_at", None)
+
+    # 2. Time spent per productivity classification
+    prod_query = (
+        db.query(
+            BrowserActivity.productivity_classification,
+            func.sum(BrowserActivity.duration_seconds).label("duration")
+        )
+        .filter(
+            BrowserActivity.user_id == user.id,
+            BrowserActivity.organization_id == user.organization_id
+        )
+        .group_by(BrowserActivity.productivity_classification)
+        .all()
+    )
+
+    productive_seconds = 0
+    non_productive_seconds = 0
+    neutral_seconds = 0
+
+    for classification, duration in prod_query:
+        if classification == ProductivityClassification.PRODUCTIVE:
+            productive_seconds = duration or 0
+        elif classification == ProductivityClassification.NON_PRODUCTIVE:
+            non_productive_seconds = duration or 0
+        elif classification == ProductivityClassification.NEUTRAL:
+            neutral_seconds = duration or 0
+
+    # 3. Category Summary
+    cat_query = (
+        db.query(
+            BrowserActivity.website_category,
+            func.sum(BrowserActivity.duration_seconds).label("duration")
+        )
+        .filter(
+            BrowserActivity.user_id == user.id,
+            BrowserActivity.organization_id == user.organization_id
+        )
+        .group_by(BrowserActivity.website_category)
+        .all()
+    )
+
+    CATEGORY_DISPLAY_NAMES = {
+        WebsiteCategory.DEVELOPMENT: "Development",
+        WebsiteCategory.AI_TOOL: "AI Tool",
+        WebsiteCategory.COMMUNICATION: "Communication",
+        WebsiteCategory.ENTERTAINMENT: "Entertainment",
+        WebsiteCategory.SOCIAL_MEDIA: "Social Media",
+        WebsiteCategory.PRODUCTIVITY: "Productivity",
+        WebsiteCategory.OTHER: "Other",
+        WebsiteCategory.EDUCATION: "Education",
+        WebsiteCategory.NEWS: "News",
+        WebsiteCategory.SEARCH_ENGINE: "Search Engine",
+        WebsiteCategory.SHOPPING: "Shopping",
+    }
+
+    category_summary = []
+    for category, duration in cat_query:
+        if duration and duration > 0:
+            display_name = CATEGORY_DISPLAY_NAMES.get(category, str(category).replace("_", " ").title())
+            category_summary.append({
+                "category": display_name,
+                "time_spent": format_seconds_to_hhmmss(duration),
+                "duration_seconds": duration,
+                "percentage": compute_percentage(duration, total_time_seconds),
+            })
+    category_summary.sort(key=lambda item: item["duration_seconds"], reverse=True)
+
+    # 4. Website Summary
+    web_query = (
+        db.query(
+            BrowserActivity.website_domain,
+            func.min(BrowserActivity.website_url).label("url"),
+            func.sum(BrowserActivity.duration_seconds).label("duration"),
+            func.count(BrowserActivity.id).label("visits")
+        )
+        .filter(
+            BrowserActivity.user_id == user.id,
+            BrowserActivity.organization_id == user.organization_id
+        )
+        .group_by(BrowserActivity.website_domain)
+        .order_by(desc("duration"))
+        .all()
+    )
+
+    website_summary = []
+    for domain, url, duration, visits in web_query:
+        if not duration or duration <= 0:
+            continue
+        website_summary.append({
+            "name": get_friendly_website_name(domain),
+            "domain": domain,
+            "url": url,
+            "time_spent": format_seconds_to_hhmmss(duration),
+            "duration_seconds": duration,
+            "visits": visits or 0,
+            "percentage": compute_percentage(duration, total_time_seconds),
+        })
+
+    return {
+        "user": {
+            "id": user.id,
+            "username": user.full_name,
+            "email": user.email
+        },
+        "productive_time": format_seconds_to_hhmmss(productive_seconds),
+        "non_productive_time": format_seconds_to_hhmmss(non_productive_seconds),
+        "neutral_time": format_seconds_to_hhmmss(neutral_seconds),
+        "total_websites_visited": total_websites_visited,
+        "total_tab_switches": total_tab_switches,
+        "total_time": format_seconds_to_hhmmss(total_time_seconds),
+        "last_activity_at": last_activity_at,
+        "category_summary": category_summary,
+        "website_summary": website_summary
+    }
+

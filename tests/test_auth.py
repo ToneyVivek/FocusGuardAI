@@ -28,8 +28,8 @@ class TestAuthEndpoints:
         
         # Duplicate registration
         response = client.post("/api/v1/auth/register", json=test_user_data)
-        assert response.status_code == 400
-        assert "already registered" in response.json()["detail"].lower()
+        assert response.status_code == 403
+        assert "admin registration is closed" in response.json()["detail"].lower()
 
     def test_register_second_admin_blocked(self, client: TestClient, test_user_data):
         """Test that second admin registration is blocked."""
@@ -130,9 +130,9 @@ class TestAuthEndpoints:
         assert data["status"] == "healthy"
 
     def test_ready_endpoint(self, client: TestClient):
-        """Test readiness check endpoint."""
+        """Test readiness check endpoint returns 200 when database is reachable."""
         response = client.get("/ready")
-        assert response.status_code == 200
+        assert response.status_code == 200  # 503 when DB is unavailable
         data = response.json()
         assert data["status"] == "ready"
         assert "database" in data["dependencies"]

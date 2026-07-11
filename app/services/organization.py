@@ -57,6 +57,7 @@ def create_organization_with_admin(
                 organization_id=db_org.id,
                 metadata={"organization_name": db_org.organization_name},
             )
+            db.commit()
         except Exception as e:
             logger.error(f"Failed to create audit log for organization creation: {e}")
         

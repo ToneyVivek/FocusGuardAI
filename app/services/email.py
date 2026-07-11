@@ -2,8 +2,6 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-from fastapi import HTTPException, status
-
 from app.config.config import settings
 import logging
 
@@ -64,10 +62,14 @@ def send_invitation_email(to_email: str, org_name: str, token: str) -> None:
             server.sendmail(settings.SMTP_FROM_EMAIL, to_email, msg.as_string())
         logger.info(f"Successfully sent invitation email to {to_email}")
     except Exception as e:
-        # Log detailed error for debugging
-        logger.error(f"Failed to send email via SMTP to {to_email}: {e}", exc_info=True)
-        # Return generic error to client
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Email delivery failed. Please verify SMTP settings or try again later."
+        # Log full SMTP error details internally.
+        # Do NOT raise HTTPException here — this function is called from a
+        # FastAPI BackgroundTask, which runs outside the HTTP request/response
+        # cycle. Raising HTTPException in a background task crashes the worker
+        # silently with no effect on the client.
+        logger.error(
+            "Failed to send invitation email via SMTP to %s: %s",
+            to_email,
+            e,
+            exc_info=True,
         )

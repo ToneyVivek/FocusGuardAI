@@ -1,14 +1,15 @@
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.dependencies.deps import get_current_admin, get_current_user, get_db
 from app.middleware.rate_limit import limiter
 from app.models.models import User
-from app.schemas.analytics_schemas import BrowserActivityCreate, BrowserActivityResponse
+from app.schemas.analytics_schemas import BrowserActivityCreate, BrowserActivityResponse, AnalyticsSummaryResponse
 from app.services.analytics_service import (
     get_organization_activities,
     get_user_activities,
     record_browser_activity,
+    get_user_analytics_summary,
 )
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
@@ -54,8 +55,8 @@ def record_activity(
 @limiter.limit("60/minute")
 def get_my_activities(
     request: Request,
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(default=100, ge=1, le=500, description="Number of records to return (max 500)"),
+    offset: int = Query(default=0, ge=0, description="Number of records to skip"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -75,8 +76,8 @@ def get_my_activities(
 @limiter.limit("60/minute")
 def get_organization_activity(
     request: Request,
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(default=100, ge=1, le=500, description="Number of records to return (max 500)"),
+    offset: int = Query(default=0, ge=0, description="Number of records to skip"),
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
@@ -85,5 +86,32 @@ def get_organization_activity(
     
     Only accessible by organization admins.
     Returns activities across all users in the organization.
+    
+    Authentication: JWT token required (Bearer token)
+    Authorization: ADMIN role required
+    Organization: Automatically filtered by admin's organization
+    Rate Limiting: 60 requests per minute per IP
     """
     return get_organization_activities(db=db, user=current_admin, limit=limit, offset=offset)
+
+
+@router.get("/summary/my", response_model=AnalyticsSummaryResponse)
+@limiter.limit("60/minute")
+def get_my_analytics_summary(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Computes and retrieves the authenticated user's aggregated productivity and activity summary.
+
+    Returns productivity totals, `last_activity_at`, and ordered breakdowns for categories and
+    websites. Each category/website entry includes `time_spent` (HH:MM:SS), `duration_seconds`,
+    and `percentage` (share of total tracked time). Zero-duration entries are excluded.
+
+    Authentication: JWT token required (Bearer token)
+    Organization: Automatically derived from the current authenticated user's profile.
+    Rate Limiting: 60 requests per minute per IP.
+    """
+    return get_user_analytics_summary(db=db, user=current_user)
+

@@ -28,6 +28,7 @@ This service provides a clean abstraction layer for this transition.
 import logging
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.analytics import BrowserActivity
@@ -107,22 +108,41 @@ class DuplicateDetectionService:
     @classmethod
     def is_duplicate_error(cls, error: Exception) -> bool:
         """
-        Determine if a database error is a duplicate key violation.
-        
-        Used to handle idempotent operations - if duplicate detected,
-        return existing record instead of failing.
-        
+        Determine if a database error is a unique constraint (duplicate key) violation.
+
+        Uses database-agnostic detection so the service works with both
+        SQLite (development/testing) and PostgreSQL (production).
+
+        Strategy:
+        1. Try PostgreSQL-specific detection via psycopg2 UniqueViolation (most reliable).
+        2. Fall back to string matching on the error message for SQLite and other drivers.
+
         Args:
             error: Database exception
-            
+
         Returns:
             True if error is a duplicate key violation, False otherwise
         """
-        error_str = str(error).lower()
+        if not isinstance(error, IntegrityError):
+            return False
+
+        # Strategy 1: PostgreSQL-specific detection via psycopg2 (most reliable).
+        # Guarded by try/except so the service does not crash when psycopg2 is
+        # not installed (e.g. SQLite-only dev/test environments).
+        try:
+            from psycopg2 import errors as pg_errors  # noqa: PLC0415
+            if hasattr(error, "__cause__") and isinstance(error.__cause__, pg_errors.UniqueViolation):
+                return True
+        except ImportError:
+            pass  # psycopg2 not available; fall through to string-based check
+
+        # Strategy 2: String-based check — works for SQLite and any DBAPI driver.
+        error_msg = str(error).lower()
         return (
-            "duplicate key" in error_str
-            or "unique constraint" in error_str
-            or "unique_violation" in error_str
+            "unique constraint" in error_msg
+            or "unique violation" in error_msg
+            or "duplicate key" in error_msg
+            or "uq_" in error_msg  # common SQLAlchemy unique index naming pattern
         )
     
     @classmethod
