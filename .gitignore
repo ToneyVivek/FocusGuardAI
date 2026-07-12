@@ -41,3 +41,8 @@ htmlcov/
 # Alembic
 alembic/versions/*.pyc
 "@ | Out-File -FilePath .gitignore -Encoding utf8
+
+
+# Postman
+postman/
+.postman/
