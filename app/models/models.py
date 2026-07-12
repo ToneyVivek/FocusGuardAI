@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Enum as SQLEnum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum as SQLEnum, ForeignKey, Integer, String, Text, LargeBinary, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -119,3 +119,35 @@ class AuditLog(Base, TimestampMixin):
 
     organization = relationship("Organization")
     user = relationship("User")
+
+
+class RefreshToken(Base, TimestampMixin):
+    """
+    Refresh tokens for JWT access token renewal.
+    
+    Security:
+    - Only stores SHA-256 hash of the token, never the raw token
+    - Tokens are rotated on each refresh (old token invalidated)
+    - Tokens have configurable expiration (default 7 days)
+    - Tokens can be revoked via logout
+    """
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token_hash = Column(LargeBinary(32), nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    is_revoked = Column(Boolean, default=False, nullable=False, index=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("User", backref="refresh_tokens")
+
+    __table_args__ = (
+        # Index for efficient lookup of active tokens
+        Index("idx_refresh_tokens_active", "user_id", "is_revoked", "expires_at"),
+    )

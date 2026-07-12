@@ -34,10 +34,53 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 
+class TokenWithRefresh(BaseModel):
+    """Response schema including both access and refresh tokens."""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "refresh_token": "xK9mP2vQ8jR4nT6wY1zA5bC7dE3fG9hI2jK4lM6nO8pQ0rS2tU4vW6xY8zA0bC2",
+                "token_type": "bearer",
+            }
+        }
+    )
+
+
 class TokenData(BaseModel):
     email: Optional[str] = None
     user_id: Optional[int] = None
     role: Optional[UserRole] = None
+
+
+class RefreshTokenRequest(BaseModel):
+    """Request schema for token refresh."""
+    refresh_token: str = Field(..., description="Refresh token to exchange for new access token")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "refresh_token": "xK9mP2vQ8jR4nT6wY1zA5bC7dE3fG9hI2jK4lM6nO8pQ0rS2tU4vW6xY8zA0bC2",
+            }
+        }
+    )
+
+
+class LogoutRequest(BaseModel):
+    """Request schema for logout."""
+    refresh_token: Optional[str] = Field(None, description="Refresh token to revoke (optional)")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "refresh_token": "xK9mP2vQ8jR4nT6wY1zA5bC7dE3fG9hI2jK4lM6nO8pQ0rS2tU4vW6xY8zA0bC2",
+            }
+        }
+    )
 
 
 # ----------------- Organization Schemas -----------------
