@@ -4,13 +4,22 @@ from sqlalchemy.orm import Session
 from app.dependencies.deps import get_current_admin, get_current_user, get_db
 from app.middleware.rate_limit import limiter
 from app.models.models import User
-from app.schemas.analytics_schemas import BrowserActivityCreate, BrowserActivityResponse, AnalyticsSummaryResponse
+from app.schemas.analytics_schemas import (
+    BrowserActivityCreate,
+    BrowserActivityResponse,
+    AnalyticsSummaryResponse,
+    UnifiedTimelineItem,
+)
+from app.schemas.idle_schemas import IdleSessionCreate, IdleSessionResponse
 from app.services.analytics_service import (
     get_organization_activities,
     get_user_activities,
     record_browser_activity,
     get_user_analytics_summary,
+    get_user_unified_timeline,
+    get_organization_unified_timeline,
 )
+from app.services.idle_session_service import create_idle_session, get_user_idle_sessions
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
@@ -51,7 +60,7 @@ def record_activity(
     return record_browser_activity(db=db, activity_in=activity_in, user=current_user)
 
 
-@router.get("/activity/my", response_model=list[BrowserActivityResponse])
+@router.get("/activity/my", response_model=list[UnifiedTimelineItem])
 @limiter.limit("60/minute")
 def get_my_activities(
     request: Request,
@@ -61,18 +70,20 @@ def get_my_activities(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Retrieves the authenticated user's browser activities.
+    Retrieves the authenticated user's unified timeline of browser activities and idle sessions.
     
-    Returns activities from the user's organization only.
+    Returns both browser activities and idle sessions from the user's organization only,
+    sorted by start time descending. Each item includes a 'type' field to distinguish
+    between 'activity' and 'idle'.
     
     Authentication: JWT token required (Bearer token)
     Organization: Automatically filtered by user's organization
     Rate Limiting: 60 requests per minute per IP
     """
-    return get_user_activities(db=db, user=current_user, limit=limit, offset=offset)
+    return get_user_unified_timeline(db=db, user=current_user, limit=limit, offset=offset)
 
 
-@router.get("/activity/organization", response_model=list[BrowserActivityResponse])
+@router.get("/activity/organization", response_model=list[UnifiedTimelineItem])
 @limiter.limit("60/minute")
 def get_organization_activity(
     request: Request,
@@ -82,17 +93,19 @@ def get_organization_activity(
     current_admin: User = Depends(get_current_admin),
 ):
     """
-    Retrieves all browser activities for the admin's organization.
+    Retrieves all browser activities and idle sessions for the admin's organization.
     
     Only accessible by organization admins.
-    Returns activities across all users in the organization.
+    Returns both browser activities and idle sessions across all users in the organization,
+    sorted by start time descending. Each item includes a 'type' field to distinguish
+    between 'activity' and 'idle'.
     
     Authentication: JWT token required (Bearer token)
     Authorization: ADMIN role required
     Organization: Automatically filtered by admin's organization
     Rate Limiting: 60 requests per minute per IP
     """
-    return get_organization_activities(db=db, user=current_admin, limit=limit, offset=offset)
+    return get_organization_unified_timeline(db=db, user=current_admin, limit=limit, offset=offset)
 
 
 @router.get("/summary/my", response_model=AnalyticsSummaryResponse)
@@ -105,13 +118,74 @@ def get_my_analytics_summary(
     """
     Computes and retrieves the authenticated user's aggregated productivity and activity summary.
 
-    Returns productivity totals, `last_activity_at`, and ordered breakdowns for categories and
-    websites. Each category/website entry includes `time_spent` (HH:MM:SS), `duration_seconds`,
-    and `percentage` (share of total tracked time). Zero-duration entries are excluded.
+    Returns productivity totals, idle time statistics, `last_activity_at`, and ordered breakdowns
+    for categories and websites. Each category/website entry includes `time_spent` (HH:MM:SS),
+    `duration_seconds`, and `percentage` (share of total tracked time). Zero-duration entries are excluded.
+
+    Now includes:
+    - idle_time: Total idle time in HH:MM:SS
+    - total_browser_time: Total browser activity time in HH:MM:SS
+    - total_logged_time: Combined browser + idle time in HH:MM:SS
+    - idle_sessions: Count of idle sessions recorded
 
     Authentication: JWT token required (Bearer token)
     Organization: Automatically derived from the current authenticated user's profile.
     Rate Limiting: 60 requests per minute per IP.
     """
     return get_user_analytics_summary(db=db, user=current_user)
+
+
+@router.post(
+    "/idle",
+    response_model=IdleSessionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit("100/minute")
+def record_idle_session(
+    request: Request,
+    idle_in: IdleSessionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Records an idle session for the authenticated user.
+
+    Browser extension sends idle session data when user was inactive.
+    Backend validates timestamps, calculates duration, and enforces idle threshold.
+
+    Browser extension provides:
+    - idle_start_time: When the idle period began
+    - idle_end_time: When the idle period ended
+
+    Backend determines:
+    - duration_seconds (calculated from timestamps)
+    - organization_id (from JWT, not client)
+    - user_id (from JWT, not client)
+    - Validates duration >= IDLE_THRESHOLD_SECONDS (default 300s / 5 minutes)
+
+    Authentication: JWT token required (Bearer token)
+    Organization: Automatically extracted from authenticated user
+    Rate Limiting: 100 requests per minute per IP
+    """
+    return create_idle_session(db=db, idle_in=idle_in, user=current_user)
+
+
+@router.get("/idle/my", response_model=list[IdleSessionResponse])
+@limiter.limit("60/minute")
+def get_my_idle_sessions(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=500, description="Number of records to return (max 500)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Retrieves the authenticated user's idle sessions.
+
+    Returns idle sessions from the user's organization only, ordered by start time descending.
+
+    Authentication: JWT token required (Bearer token)
+    Organization: Automatically filtered by user's organization
+    Rate Limiting: 60 requests per minute per IP
+    """
+    return get_user_idle_sessions(db=db, user=current_user, limit=limit)
 

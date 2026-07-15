@@ -74,6 +74,23 @@ class TestAnalyticsSummary:
         resp = client.post("/api/v1/analytics/activity", json=activity_3, headers=headers)
         assert resp.status_code == 201
 
+        # 4. Record some idle sessions (non-overlapping, adjacent)
+        # Idle session 1: 330 seconds (5.5 minutes) - ends later
+        idle_1 = {
+            "idle_start_time": (now - timedelta(seconds=500)).isoformat(),
+            "idle_end_time": (now - timedelta(seconds=170)).isoformat(),
+        }
+        resp = client.post("/api/v1/analytics/idle", json=idle_1, headers=headers)
+        assert resp.status_code == 201
+
+        # Idle session 2: 300 seconds (5 minutes) - adjacent before idle_1
+        idle_2 = {
+            "idle_start_time": (now - timedelta(seconds=800)).isoformat(),
+            "idle_end_time": (now - timedelta(seconds=500)).isoformat(),
+        }
+        resp = client.post("/api/v1/analytics/idle", json=idle_2, headers=headers)
+        assert resp.status_code == 201
+
         # 5. Fetch Summary
         summary_resp = client.get("/api/v1/analytics/summary/my", headers=headers)
         assert summary_resp.status_code == 200
@@ -86,8 +103,15 @@ class TestAnalyticsSummary:
         # 7. Assert totals
         assert summary["total_websites_visited"] == 3
         assert summary["total_tab_switches"] == 3
-        # Total time is 100 + 60 + 30 = 190 seconds (03 mins 10 secs -> 00:03:10)
+        # Total browser time is 100 + 60 + 30 = 190 seconds (03 mins 10 secs -> 00:03:10)
         assert summary["total_time"] == "00:03:10"
+        assert summary["total_browser_time"] == "00:03:10"
+        # Total idle time is 330 + 300 = 630 seconds (10 mins 30 secs -> 00:10:30)
+        assert summary["idle_time"] == "00:10:30"
+        # Total logged time is 190 + 630 = 820 seconds (13 mins 40 secs -> 00:13:40)
+        assert summary["total_logged_time"] == "00:13:40"
+        # Idle sessions count
+        assert summary["idle_sessions"] == 2
 
         # 8. Assert productivity times
         # Productive: GitHub (100) + ChatGPT (60) = 160 seconds -> 00:02:40
@@ -186,4 +210,146 @@ class TestAnalyticsSummary:
     def test_get_analytics_summary_unauthorized(self, client: TestClient):
         """Test retrieving analytics summary without JWT."""
         response = client.get("/api/v1/analytics/summary/my")
+        assert response.status_code == 401
+
+    def test_get_unified_timeline_my(self, client: TestClient, test_user_data, test_organization_data):
+        """Test retrieving unified timeline with both browser activities and idle sessions."""
+        # 1. Register admin
+        client.post("/api/v1/auth/register", json=test_user_data)
+
+        # 2. Login
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data={
+                "username": test_user_data["email"],
+                "password": test_user_data["password"],
+            },
+        )
+        token = login_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 3. Create organization to link admin
+        client.post(
+            "/api/v1/organizations/create",
+            json=test_organization_data,
+            headers=headers,
+        )
+
+        # 4. Record browser activity
+        now = datetime.now(timezone.utc)
+        activity = {
+            "browser_name": "Chrome",
+            "website_url": "https://github.com",
+            "website_domain": "github.com",
+            "page_title": "GitHub",
+            "session_start_time": (now - timedelta(seconds=100)).isoformat(),
+            "session_end_time": now.isoformat(),
+        }
+        resp = client.post("/api/v1/analytics/activity", json=activity, headers=headers)
+        assert resp.status_code == 201
+
+        # 5. Record idle session
+        idle = {
+            "idle_start_time": (now - timedelta(seconds=400)).isoformat(),
+            "idle_end_time": (now - timedelta(seconds=100)).isoformat(),
+        }
+        resp = client.post("/api/v1/analytics/idle", json=idle, headers=headers)
+        assert resp.status_code == 201
+
+        # 6. Fetch unified timeline
+        timeline_resp = client.get("/api/v1/analytics/activity/my", headers=headers)
+        assert timeline_resp.status_code == 200
+        timeline = timeline_resp.json()
+
+        # 7. Assert timeline contains both types
+        assert isinstance(timeline, list)
+        assert len(timeline) >= 2
+
+        # 8. Assert type field exists and is valid
+        types = {item["type"] for item in timeline}
+        assert "activity" in types
+        assert "idle" in types
+
+        # 9. Assert chronological ordering (descending by start_time)
+        start_times = [item["start_time"] for item in timeline]
+        assert start_times == sorted(start_times, reverse=True)
+
+        # 10. Assert browser activity has required fields
+        browser_items = [item for item in timeline if item["type"] == "activity"]
+        assert len(browser_items) >= 1
+        browser_item = browser_items[0]
+        assert browser_item["browser_name"] == "Chrome"
+        assert browser_item["website_domain"] == "github.com"
+        assert browser_item["website_category"] is not None
+        assert browser_item["productivity_classification"] is not None
+
+        # 11. Assert idle session has required fields
+        idle_items = [item for item in timeline if item["type"] == "idle"]
+        assert len(idle_items) >= 1
+        idle_item = idle_items[0]
+        assert idle_item["idle_start_time"] is not None
+        assert idle_item["idle_end_time"] is not None
+        assert idle_item["duration_seconds"] > 0
+
+    def test_get_unified_timeline_organization(self, client: TestClient, test_user_data, test_organization_data):
+        """Test retrieving unified timeline for organization (admin only)."""
+        # 1. Register admin
+        client.post("/api/v1/auth/register", json=test_user_data)
+
+        # 2. Login
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data={
+                "username": test_user_data["email"],
+                "password": test_user_data["password"],
+            },
+        )
+        token = login_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 3. Create organization
+        client.post(
+            "/api/v1/organizations/create",
+            json=test_organization_data,
+            headers=headers,
+        )
+
+        # 4. Record browser activity
+        now = datetime.now(timezone.utc)
+        activity = {
+            "browser_name": "Chrome",
+            "website_url": "https://github.com",
+            "website_domain": "github.com",
+            "page_title": "GitHub",
+            "session_start_time": (now - timedelta(seconds=100)).isoformat(),
+            "session_end_time": now.isoformat(),
+        }
+        resp = client.post("/api/v1/analytics/activity", json=activity, headers=headers)
+        assert resp.status_code == 201
+
+        # 5. Record idle session
+        idle = {
+            "idle_start_time": (now - timedelta(seconds=400)).isoformat(),
+            "idle_end_time": (now - timedelta(seconds=100)).isoformat(),
+        }
+        resp = client.post("/api/v1/analytics/idle", json=idle, headers=headers)
+        assert resp.status_code == 201
+
+        # 6. Fetch organization unified timeline
+        timeline_resp = client.get("/api/v1/analytics/activity/organization", headers=headers)
+        assert timeline_resp.status_code == 200
+        timeline = timeline_resp.json()
+
+        # 7. Assert timeline contains both types
+        assert isinstance(timeline, list)
+        assert len(timeline) >= 2
+
+        # 8. Assert type field exists and is valid
+        types = {item["type"] for item in timeline}
+        assert "activity" in types
+        assert "idle" in types
+
+    def test_get_unified_timeline_unauthorized(self, client: TestClient):
+        """Test retrieving unified timeline without JWT."""
+        response = client.get("/api/v1/analytics/activity/my")
         assert response.status_code == 401

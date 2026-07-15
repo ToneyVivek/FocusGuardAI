@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -130,6 +130,10 @@ class AnalyticsSummaryResponse(BaseModel):
     total_websites_visited: int
     total_tab_switches: int
     total_time: str
+    idle_time: str = Field(..., description="Total idle time in HH:MM:SS format")
+    total_browser_time: str = Field(..., description="Total browser activity time in HH:MM:SS format")
+    total_logged_time: str = Field(..., description="Total logged time (browser + idle) in HH:MM:SS format")
+    idle_sessions: int = Field(..., description="Total number of idle sessions recorded")
     last_activity_at: Optional[datetime] = Field(
         None,
         description="Latest session_end_time for the authenticated user (UTC)",
@@ -157,6 +161,10 @@ class AnalyticsSummaryResponse(BaseModel):
                 "total_websites_visited": 12,
                 "total_tab_switches": 87,
                 "total_time": "01:58:37",
+                "idle_time": "00:15:00",
+                "total_browser_time": "01:58:37",
+                "total_logged_time": "02:13:37",
+                "idle_sessions": 3,
                 "last_activity_at": "2026-07-11T18:13:58Z",
                 "category_summary": [
                     {
@@ -192,6 +200,93 @@ class AnalyticsSummaryResponse(BaseModel):
                         "percentage": 15.75,
                     },
                 ],
+            }
+        }
+    )
+
+
+class BrowserActivityTimelineItem(BaseModel):
+    """Browser activity item for unified timeline."""
+    type: Literal["activity"]
+    id: int
+    organization_id: int
+    user_id: int
+    username: Optional[str]
+    browser_name: str
+    website_url: str
+    website_domain: str
+    page_title: Optional[str]
+    website_category: WebsiteCategory
+    productivity_classification: ProductivityClassification
+    session_start_time: datetime
+    session_end_time: datetime
+    duration_seconds: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IdleSessionTimelineItem(BaseModel):
+    """Idle session item for unified timeline."""
+    type: Literal["idle"]
+    id: int
+    organization_id: int
+    user_id: int
+    idle_start_time: datetime
+    idle_end_time: datetime
+    duration_seconds: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UnifiedTimelineItem(BaseModel):
+    """Unified timeline item that can be either browser activity or idle session."""
+    type: Literal["activity", "idle"]
+    id: int
+    organization_id: int
+    user_id: int
+    start_time: datetime = Field(..., description="Session start time (session_start_time or idle_start_time)")
+    end_time: datetime = Field(..., description="Session end time (session_end_time or idle_end_time)")
+    duration_seconds: int
+    created_at: datetime
+    updated_at: datetime
+    # Browser activity specific fields (optional)
+    browser_name: Optional[str] = None
+    website_url: Optional[str] = None
+    website_domain: Optional[str] = None
+    page_title: Optional[str] = None
+    website_category: Optional[WebsiteCategory] = None
+    productivity_classification: Optional[ProductivityClassification] = None
+    username: Optional[str] = None
+    # Idle session specific fields (optional)
+    idle_start_time: Optional[datetime] = None
+    idle_end_time: Optional[datetime] = None
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "type": "activity",
+                "id": 1,
+                "organization_id": 1,
+                "user_id": 1,
+                "start_time": "2026-07-15T10:00:00Z",
+                "end_time": "2026-07-15T10:05:30Z",
+                "duration_seconds": 330,
+                "created_at": "2026-07-15T10:05:35Z",
+                "updated_at": "2026-07-15T10:05:35Z",
+                "browser_name": "Chrome",
+                "website_url": "https://github.com",
+                "website_domain": "github.com",
+                "page_title": "GitHub Repository",
+                "website_category": "DEVELOPMENT",
+                "productivity_classification": "PRODUCTIVE",
+                "username": "Jane Doe",
+                "idle_start_time": None,
+                "idle_end_time": None,
             }
         }
     )

@@ -3,13 +3,17 @@ import logging
 from datetime import datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, distinct, desc
+from sqlalchemy import func, distinct, desc, case, literal_column
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.analytics import BrowserActivity
-from app.models.models import User, WebsiteCategory, ProductivityClassification
-from app.schemas.analytics_schemas import BrowserActivityCreate, BrowserActivityResponse
+from app.models.models import User, WebsiteCategory, ProductivityClassification, IdleSession
+from app.schemas.analytics_schemas import (
+    BrowserActivityCreate, 
+    BrowserActivityResponse,
+    UnifiedTimelineItem
+)
 from app.services.audit import create_audit_log
 from app.services.classification_service import classification_service
 from app.services.domain_normalization import domain_normalization_service
@@ -281,6 +285,7 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
     """
     Computes an aggregated productivity and activity summary for the user.
     Calculations are performed on-demand directly via database aggregation.
+    Includes both browser activity and idle session data.
     """
     if user.organization_id is None:
         raise HTTPException(
@@ -288,7 +293,7 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
             detail="User must belong to an organization to view analytics summary."
         )
 
-    # 1. Total statistics
+    # 1. Total statistics (browser activity)
     totals = (
         db.query(
             func.sum(BrowserActivity.duration_seconds).label("total_time"),
@@ -303,10 +308,29 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
         .first()
     )
 
-    total_time_seconds = getattr(totals, "total_time", 0) or 0
+    total_browser_time_seconds = getattr(totals, "total_time", 0) or 0
     total_tab_switches = getattr(totals, "total_tab_switches", 0) or 0
     total_websites_visited = getattr(totals, "total_websites", 0) or 0
     last_activity_at = getattr(totals, "last_activity_at", None)
+
+    # 2. Idle session statistics
+    idle_totals = (
+        db.query(
+            func.sum(IdleSession.duration_seconds).label("total_idle_time"),
+            func.count(IdleSession.id).label("idle_sessions_count"),
+        )
+        .filter(
+            IdleSession.user_id == user.id,
+            IdleSession.organization_id == user.organization_id
+        )
+        .first()
+    )
+
+    total_idle_time_seconds = getattr(idle_totals, "total_idle_time", 0) or 0
+    idle_sessions_count = getattr(idle_totals, "idle_sessions_count", 0) or 0
+
+    # 3. Calculate combined totals
+    total_logged_time_seconds = total_browser_time_seconds + total_idle_time_seconds
 
     # 2. Time spent per productivity classification
     prod_query = (
@@ -334,7 +358,7 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
         elif classification == ProductivityClassification.NEUTRAL:
             neutral_seconds = duration or 0
 
-    # 3. Category Summary
+    # 4. Category Summary
     cat_query = (
         db.query(
             BrowserActivity.website_category,
@@ -370,11 +394,11 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
                 "category": display_name,
                 "time_spent": format_seconds_to_hhmmss(duration),
                 "duration_seconds": duration,
-                "percentage": compute_percentage(duration, total_time_seconds),
+                "percentage": compute_percentage(duration, total_browser_time_seconds),
             })
     category_summary.sort(key=lambda item: item["duration_seconds"], reverse=True)
 
-    # 4. Website Summary
+    # 5. Website Summary
     web_query = (
         db.query(
             BrowserActivity.website_domain,
@@ -402,7 +426,7 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
             "time_spent": format_seconds_to_hhmmss(duration),
             "duration_seconds": duration,
             "visits": visits or 0,
-            "percentage": compute_percentage(duration, total_time_seconds),
+            "percentage": compute_percentage(duration, total_browser_time_seconds),
         })
 
     return {
@@ -416,9 +440,185 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
         "neutral_time": format_seconds_to_hhmmss(neutral_seconds),
         "total_websites_visited": total_websites_visited,
         "total_tab_switches": total_tab_switches,
-        "total_time": format_seconds_to_hhmmss(total_time_seconds),
+        "total_time": format_seconds_to_hhmmss(total_browser_time_seconds),
+        "idle_time": format_seconds_to_hhmmss(total_idle_time_seconds),
+        "total_browser_time": format_seconds_to_hhmmss(total_browser_time_seconds),
+        "total_logged_time": format_seconds_to_hhmmss(total_logged_time_seconds),
+        "idle_sessions": idle_sessions_count,
         "last_activity_at": last_activity_at,
         "category_summary": category_summary,
         "website_summary": website_summary
     }
+
+
+def get_user_unified_timeline(
+    db: Session,
+    user: User,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[UnifiedTimelineItem]:
+    """
+    Retrieves a unified chronological timeline of browser activities and idle sessions for the user.
+    
+    Combines both BrowserActivity and IdleSession records, sorted by start time descending.
+    Each item includes a 'type' field to distinguish between 'activity' and 'idle'.
+    
+    Args:
+        db: Database session
+        user: Authenticated user
+        limit: Maximum number of records to return
+        offset: Number of records to skip
+        
+    Returns:
+        List of unified timeline items
+    """
+    if user.organization_id is None:
+        return []
+    
+    # Query browser activities
+    browser_activities = (
+        db.query(BrowserActivity)
+        .filter(
+            BrowserActivity.organization_id == user.organization_id,
+            BrowserActivity.user_id == user.id,
+        )
+        .all()
+    )
+    
+    # Query idle sessions
+    idle_sessions = (
+        db.query(IdleSession)
+        .filter(
+            IdleSession.organization_id == user.organization_id,
+            IdleSession.user_id == user.id,
+        )
+        .all()
+    )
+    
+    # Convert to unified timeline items
+    timeline_items = []
+    
+    for activity in browser_activities:
+        timeline_items.append(UnifiedTimelineItem(
+            type="activity",
+            id=activity.id,
+            organization_id=activity.organization_id,
+            user_id=activity.user_id,
+            start_time=activity.session_start_time,
+            end_time=activity.session_end_time,
+            duration_seconds=activity.duration_seconds,
+            created_at=activity.created_at,
+            updated_at=activity.updated_at,
+            browser_name=activity.browser_name,
+            website_url=activity.website_url,
+            website_domain=activity.website_domain,
+            page_title=activity.page_title,
+            website_category=activity.website_category,
+            productivity_classification=activity.productivity_classification,
+            username=activity.username,
+        ))
+    
+    for session in idle_sessions:
+        timeline_items.append(UnifiedTimelineItem(
+            type="idle",
+            id=session.id,
+            organization_id=session.organization_id,
+            user_id=session.user_id,
+            start_time=session.idle_start_time,
+            end_time=session.idle_end_time,
+            duration_seconds=session.duration_seconds,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            idle_start_time=session.idle_start_time,
+            idle_end_time=session.idle_end_time,
+        ))
+    
+    # Sort by start time descending
+    timeline_items.sort(key=lambda x: x.start_time, reverse=True)
+    
+    # Apply pagination
+    return timeline_items[offset:offset + limit]
+
+
+def get_organization_unified_timeline(
+    db: Session,
+    user: User,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[UnifiedTimelineItem]:
+    """
+    Retrieves a unified chronological timeline of browser activities and idle sessions for the organization.
+    
+    Only accessible by admins. Returns all activities and idle sessions across the organization.
+    Each item includes a 'type' field to distinguish between 'activity' and 'idle'.
+    
+    Args:
+        db: Database session
+        user: Authenticated user (must be admin)
+        limit: Maximum number of records to return
+        offset: Number of records to skip
+        
+    Returns:
+        List of unified timeline items for the organization
+    """
+    if user.organization_id is None:
+        return []
+    
+    # Query browser activities for organization
+    browser_activities = (
+        db.query(BrowserActivity)
+        .filter(BrowserActivity.organization_id == user.organization_id)
+        .all()
+    )
+    
+    # Query idle sessions for organization
+    idle_sessions = (
+        db.query(IdleSession)
+        .filter(IdleSession.organization_id == user.organization_id)
+        .all()
+    )
+    
+    # Convert to unified timeline items
+    timeline_items = []
+    
+    for activity in browser_activities:
+        timeline_items.append(UnifiedTimelineItem(
+            type="activity",
+            id=activity.id,
+            organization_id=activity.organization_id,
+            user_id=activity.user_id,
+            start_time=activity.session_start_time,
+            end_time=activity.session_end_time,
+            duration_seconds=activity.duration_seconds,
+            created_at=activity.created_at,
+            updated_at=activity.updated_at,
+            browser_name=activity.browser_name,
+            website_url=activity.website_url,
+            website_domain=activity.website_domain,
+            page_title=activity.page_title,
+            website_category=activity.website_category,
+            productivity_classification=activity.productivity_classification,
+            username=activity.username,
+        ))
+    
+    for session in idle_sessions:
+        timeline_items.append(UnifiedTimelineItem(
+            type="idle",
+            id=session.id,
+            organization_id=session.organization_id,
+            user_id=session.user_id,
+            start_time=session.idle_start_time,
+            end_time=session.idle_end_time,
+            duration_seconds=session.duration_seconds,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            idle_start_time=session.idle_start_time,
+            idle_end_time=session.idle_end_time,
+        ))
+    
+    # Sort by start time descending
+    timeline_items.sort(key=lambda x: x.start_time, reverse=True)
+    
+    # Apply pagination
+    return timeline_items[offset:offset + limit]
 

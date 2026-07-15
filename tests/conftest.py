@@ -11,7 +11,7 @@ from app.database.session import Base
 # Import all models so their tables are registered with Base.metadata
 # before create_all() is called. SQLAlchemy only knows about tables
 # whose model classes have been imported at least once.
-import app.models.models  # noqa: F401 — registers User, Organization, Invitation, AuditLog
+import app.models.models  # noqa: F401 — registers User, Organization, Invitation, AuditLog, IdleSession
 import app.models.analytics  # noqa: F401 — registers BrowserActivity
 
 from app.main import app
@@ -86,3 +86,37 @@ def test_organization_data():
     return {
         "organization_name": "Test Organization",
     }
+
+
+@pytest.fixture
+def auth_headers(client, test_user_data, test_organization_data):
+    """Provide authentication headers for a test user with organization."""
+    # Register user (this creates a bootstrap admin)
+    client.post("/api/v1/auth/register", json=test_user_data)
+    
+    # Login to get token
+    login_response = client.post(
+        "/api/v1/auth/login",
+        data={
+            "username": test_user_data["email"],
+            "password": test_user_data["password"],
+        },
+    )
+    
+    token = login_response.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    # Create organization (admin can create organization)
+    client.post("/api/v1/organizations/create", json=test_organization_data, headers=headers)
+    
+    # Login again to get token with organization_id
+    login_response2 = client.post(
+        "/api/v1/auth/login",
+        data={
+            "username": test_user_data["email"],
+            "password": test_user_data["password"],
+        },
+    )
+    
+    token = login_response2.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}

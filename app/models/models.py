@@ -151,3 +151,40 @@ class RefreshToken(Base, TimestampMixin):
         # Index for efficient lookup of active tokens
         Index("idx_refresh_tokens_active", "user_id", "is_revoked", "expires_at"),
     )
+
+
+class IdleSession(Base, TimestampMixin):
+    """
+    Idle session tracking for user inactivity periods.
+    
+    Tracks periods where the user was idle (no browser activity).
+    Duration is calculated from timestamps by the backend.
+    """
+    __tablename__ = "idle_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    idle_start_time = Column(DateTime(timezone=True), nullable=False, index=True)
+    idle_end_time = Column(DateTime(timezone=True), nullable=False, index=True)
+    duration_seconds = Column(Integer, nullable=False)
+
+    organization = relationship("Organization")
+    user = relationship("User")
+
+    __table_args__ = (
+        # Index for efficient querying by user and time range
+        Index("idx_idle_sessions_user_time", "user_id", "idle_start_time", "idle_end_time"),
+        # Index for organization-level analytics
+        Index("idx_idle_sessions_org_time", "organization_id", "idle_start_time"),
+    )
