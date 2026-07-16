@@ -1,9 +1,9 @@
 import logging
-
-from datetime import datetime
+from datetime import datetime, date
+from typing import Optional, Tuple
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, distinct, desc, case, literal_column
+from sqlalchemy import func, distinct, desc, case, literal_column, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,114 @@ from app.services.domain_normalization import domain_normalization_service
 from app.services.duplicate_detection import duplicate_detection_service
 
 logger = logging.getLogger(__name__)
+
+
+def parse_and_validate_date_filter(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> Tuple[Optional[date], Optional[date]]:
+    """
+    Parse and validate date filter parameters.
+    
+    Args:
+        start_date: ISO-8601 date string (e.g., "2026-07-01")
+        end_date: ISO-8601 date string (e.g., "2026-07-15")
+        
+    Returns:
+        Tuple of (start_date, end_date) as date objects or None
+        
+    Raises:
+        HTTPException: If dates are invalid or end_date < start_date
+    """
+    parsed_start = None
+    parsed_end = None
+    
+    if start_date:
+        try:
+            parsed_start = date.fromisoformat(start_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid start_date format: {start_date}. Expected ISO-8601 format (YYYY-MM-DD)."
+            )
+    
+    if end_date:
+        try:
+            parsed_end = date.fromisoformat(end_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid end_date format: {end_date}. Expected ISO-8601 format (YYYY-MM-DD)."
+            )
+    
+    # Validate date range
+    if parsed_start and parsed_end and parsed_end < parsed_start:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="end_date must be greater than or equal to start_date"
+        )
+    
+    return parsed_start, parsed_end
+
+
+def apply_browser_activity_date_filter(query, start_date: Optional[date], end_date: Optional[date]):
+    """
+    Apply date filter to BrowserActivity query using session_start_time.
+    
+    Args:
+        query: SQLAlchemy query object
+        start_date: Optional start date
+        end_date: Optional end date
+        
+    Returns:
+        Filtered query
+    """
+    conditions = []
+    
+    if start_date:
+        # Filter for session_start_time >= start_date 00:00:00
+        start_datetime = datetime.combine(start_date, datetime.min.time())
+        conditions.append(BrowserActivity.session_start_time >= start_datetime)
+    
+    if end_date:
+        # Filter for session_start_time <= end_date 23:59:59
+        end_datetime = datetime.combine(end_date, datetime.max.time())
+        conditions.append(BrowserActivity.session_start_time <= end_datetime)
+    
+    if conditions:
+        query = query.filter(and_(*conditions))
+    
+    return query
+
+
+def apply_idle_session_date_filter(query, start_date: Optional[date], end_date: Optional[date]):
+    """
+    Apply date filter to IdleSession query using idle_start_time.
+    
+    Args:
+        query: SQLAlchemy query object
+        start_date: Optional start date
+        end_date: Optional end date
+        
+    Returns:
+        Filtered query
+    """
+    conditions = []
+    
+    if start_date:
+        # Filter for idle_start_time >= start_date 00:00:00
+        start_datetime = datetime.combine(start_date, datetime.min.time())
+        conditions.append(IdleSession.idle_start_time >= start_datetime)
+    
+    if end_date:
+        # Filter for idle_start_time <= end_date 23:59:59
+        end_datetime = datetime.combine(end_date, datetime.max.time())
+        conditions.append(IdleSession.idle_start_time <= end_datetime)
+    
+    if conditions:
+        query = query.filter(and_(*conditions))
+    
+    return query
 
 
 def record_browser_activity(
@@ -165,6 +273,8 @@ def get_user_activities(
     user: User,
     limit: int = 100,
     offset: int = 0,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
 ) -> list[BrowserActivityResponse]:
     """
     Retrieves browser activities for the authenticated user.
@@ -176,6 +286,8 @@ def get_user_activities(
         user: Authenticated user
         limit: Maximum number of records to return
         offset: Number of records to skip
+        start_date: Optional start date filter
+        end_date: Optional end date filter
         
     Returns:
         List of browser activities
@@ -183,12 +295,19 @@ def get_user_activities(
     if user.organization_id is None:
         return []
     
-    activities = (
+    query = (
         db.query(BrowserActivity)
         .filter(
             BrowserActivity.organization_id == user.organization_id,
             BrowserActivity.user_id == user.id,
         )
+    )
+    
+    # Apply date filter
+    query = apply_browser_activity_date_filter(query, start_date, end_date)
+    
+    activities = (
+        query
         .order_by(BrowserActivity.session_start_time.desc())
         .limit(limit)
         .offset(offset)
@@ -203,6 +322,8 @@ def get_organization_activities(
     user: User,
     limit: int = 100,
     offset: int = 0,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
 ) -> list[BrowserActivityResponse]:
     """
     Retrieves browser activities for the user's organization.
@@ -214,6 +335,8 @@ def get_organization_activities(
         user: Authenticated user (must be admin)
         limit: Maximum number of records to return
         offset: Number of records to skip
+        start_date: Optional start date filter
+        end_date: Optional end date filter
         
     Returns:
         List of browser activities for the organization
@@ -221,9 +344,16 @@ def get_organization_activities(
     if user.organization_id is None:
         return []
     
-    activities = (
+    query = (
         db.query(BrowserActivity)
         .filter(BrowserActivity.organization_id == user.organization_id)
+    )
+    
+    # Apply date filter
+    query = apply_browser_activity_date_filter(query, start_date, end_date)
+    
+    activities = (
+        query
         .order_by(BrowserActivity.session_start_time.desc())
         .limit(limit)
         .offset(offset)
@@ -281,11 +411,25 @@ def compute_percentage(duration_seconds: int, total_time_seconds: int) -> float:
     return round((duration_seconds / total_time_seconds) * 100, 2)
 
 
-def get_user_analytics_summary(db: Session, user: User) -> dict:
+def get_user_analytics_summary(
+    db: Session,
+    user: User,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> dict:
     """
     Computes an aggregated productivity and activity summary for the user.
     Calculations are performed on-demand directly via database aggregation.
     Includes both browser activity and idle session data.
+    
+    Args:
+        db: Database session
+        user: Authenticated user
+        start_date: Optional start date filter
+        end_date: Optional end date filter
+        
+    Returns:
+        Analytics summary dictionary
     """
     if user.organization_id is None:
         raise HTTPException(
@@ -294,7 +438,7 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
         )
 
     # 1. Total statistics (browser activity)
-    totals = (
+    totals_query = (
         db.query(
             func.sum(BrowserActivity.duration_seconds).label("total_time"),
             func.count(BrowserActivity.id).label("total_tab_switches"),
@@ -305,8 +449,12 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
             BrowserActivity.user_id == user.id,
             BrowserActivity.organization_id == user.organization_id
         )
-        .first()
     )
+    
+    # Apply date filter
+    totals_query = apply_browser_activity_date_filter(totals_query, start_date, end_date)
+    
+    totals = totals_query.first()
 
     total_browser_time_seconds = getattr(totals, "total_time", 0) or 0
     total_tab_switches = getattr(totals, "total_tab_switches", 0) or 0
@@ -314,7 +462,7 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
     last_activity_at = getattr(totals, "last_activity_at", None)
 
     # 2. Idle session statistics
-    idle_totals = (
+    idle_totals_query = (
         db.query(
             func.sum(IdleSession.duration_seconds).label("total_idle_time"),
             func.count(IdleSession.id).label("idle_sessions_count"),
@@ -323,8 +471,12 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
             IdleSession.user_id == user.id,
             IdleSession.organization_id == user.organization_id
         )
-        .first()
     )
+    
+    # Apply date filter
+    idle_totals_query = apply_idle_session_date_filter(idle_totals_query, start_date, end_date)
+    
+    idle_totals = idle_totals_query.first()
 
     total_idle_time_seconds = getattr(idle_totals, "total_idle_time", 0) or 0
     idle_sessions_count = getattr(idle_totals, "idle_sessions_count", 0) or 0
@@ -332,7 +484,7 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
     # 3. Calculate combined totals
     total_logged_time_seconds = total_browser_time_seconds + total_idle_time_seconds
 
-    # 2. Time spent per productivity classification
+    # 4. Time spent per productivity classification
     prod_query = (
         db.query(
             BrowserActivity.productivity_classification,
@@ -342,9 +494,12 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
             BrowserActivity.user_id == user.id,
             BrowserActivity.organization_id == user.organization_id
         )
-        .group_by(BrowserActivity.productivity_classification)
-        .all()
     )
+    
+    # Apply date filter
+    prod_query = apply_browser_activity_date_filter(prod_query, start_date, end_date)
+    
+    prod_query = prod_query.group_by(BrowserActivity.productivity_classification).all()
 
     productive_seconds = 0
     non_productive_seconds = 0
@@ -358,7 +513,7 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
         elif classification == ProductivityClassification.NEUTRAL:
             neutral_seconds = duration or 0
 
-    # 4. Category Summary
+    # 5. Category Summary
     cat_query = (
         db.query(
             BrowserActivity.website_category,
@@ -368,9 +523,12 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
             BrowserActivity.user_id == user.id,
             BrowserActivity.organization_id == user.organization_id
         )
-        .group_by(BrowserActivity.website_category)
-        .all()
     )
+    
+    # Apply date filter
+    cat_query = apply_browser_activity_date_filter(cat_query, start_date, end_date)
+    
+    cat_query = cat_query.group_by(BrowserActivity.website_category).all()
 
     CATEGORY_DISPLAY_NAMES = {
         WebsiteCategory.DEVELOPMENT: "Development",
@@ -398,7 +556,7 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
             })
     category_summary.sort(key=lambda item: item["duration_seconds"], reverse=True)
 
-    # 5. Website Summary
+    # 6. Website Summary
     web_query = (
         db.query(
             BrowserActivity.website_domain,
@@ -410,10 +568,12 @@ def get_user_analytics_summary(db: Session, user: User) -> dict:
             BrowserActivity.user_id == user.id,
             BrowserActivity.organization_id == user.organization_id
         )
-        .group_by(BrowserActivity.website_domain)
-        .order_by(desc("duration"))
-        .all()
     )
+    
+    # Apply date filter
+    web_query = apply_browser_activity_date_filter(web_query, start_date, end_date)
+    
+    web_query = web_query.group_by(BrowserActivity.website_domain).order_by(desc("duration")).all()
 
     website_summary = []
     for domain, url, duration, visits in web_query:
@@ -456,6 +616,8 @@ def get_user_unified_timeline(
     user: User,
     limit: int = 100,
     offset: int = 0,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
 ) -> list[UnifiedTimelineItem]:
     """
     Retrieves a unified chronological timeline of browser activities and idle sessions for the user.
@@ -468,6 +630,8 @@ def get_user_unified_timeline(
         user: Authenticated user
         limit: Maximum number of records to return
         offset: Number of records to skip
+        start_date: Optional start date filter
+        end_date: Optional end date filter
         
     Returns:
         List of unified timeline items
@@ -476,24 +640,32 @@ def get_user_unified_timeline(
         return []
     
     # Query browser activities
-    browser_activities = (
+    browser_query = (
         db.query(BrowserActivity)
         .filter(
             BrowserActivity.organization_id == user.organization_id,
             BrowserActivity.user_id == user.id,
         )
-        .all()
     )
     
+    # Apply date filter
+    browser_query = apply_browser_activity_date_filter(browser_query, start_date, end_date)
+    
+    browser_activities = browser_query.all()
+    
     # Query idle sessions
-    idle_sessions = (
+    idle_query = (
         db.query(IdleSession)
         .filter(
             IdleSession.organization_id == user.organization_id,
             IdleSession.user_id == user.id,
         )
-        .all()
     )
+    
+    # Apply date filter
+    idle_query = apply_idle_session_date_filter(idle_query, start_date, end_date)
+    
+    idle_sessions = idle_query.all()
     
     # Convert to unified timeline items
     timeline_items = []
@@ -545,6 +717,8 @@ def get_organization_unified_timeline(
     user: User,
     limit: int = 100,
     offset: int = 0,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
 ) -> list[UnifiedTimelineItem]:
     """
     Retrieves a unified chronological timeline of browser activities and idle sessions for the organization.
@@ -557,6 +731,8 @@ def get_organization_unified_timeline(
         user: Authenticated user (must be admin)
         limit: Maximum number of records to return
         offset: Number of records to skip
+        start_date: Optional start date filter
+        end_date: Optional end date filter
         
     Returns:
         List of unified timeline items for the organization
@@ -565,18 +741,26 @@ def get_organization_unified_timeline(
         return []
     
     # Query browser activities for organization
-    browser_activities = (
+    browser_query = (
         db.query(BrowserActivity)
         .filter(BrowserActivity.organization_id == user.organization_id)
-        .all()
     )
     
+    # Apply date filter
+    browser_query = apply_browser_activity_date_filter(browser_query, start_date, end_date)
+    
+    browser_activities = browser_query.all()
+    
     # Query idle sessions for organization
-    idle_sessions = (
+    idle_query = (
         db.query(IdleSession)
         .filter(IdleSession.organization_id == user.organization_id)
-        .all()
     )
+    
+    # Apply date filter
+    idle_query = apply_idle_session_date_filter(idle_query, start_date, end_date)
+    
+    idle_sessions = idle_query.all()
     
     # Convert to unified timeline items
     timeline_items = []

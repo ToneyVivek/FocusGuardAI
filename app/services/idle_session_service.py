@@ -8,11 +8,14 @@ Features:
 - Multi-tenant isolation
 - Audit logging
 - Transaction-safe operations
+- Date range filtering
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
+from typing import Optional
 
 from fastapi import HTTPException, status
+from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from app.config.config import settings
@@ -186,6 +189,8 @@ def get_user_idle_sessions(
     db: Session,
     user: User,
     limit: int = 100,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
 ) -> list[IdleSessionResponse]:
     """
     Get idle sessions for a specific user.
@@ -194,6 +199,8 @@ def get_user_idle_sessions(
         db: Database session
         user: Authenticated user
         limit: Maximum number of records to return
+        start_date: Optional start date filter
+        end_date: Optional end date filter
         
     Returns:
         List of idle session responses
@@ -204,12 +211,29 @@ def get_user_idle_sessions(
             detail="User must belong to an organization to view idle sessions",
         )
     
-    idle_sessions = (
+    query = (
         db.query(IdleSession)
         .filter(
             IdleSession.user_id == user.id,
             IdleSession.organization_id == user.organization_id,
         )
+    )
+    
+    # Apply date filter
+    if start_date:
+        start_datetime = datetime.combine(start_date, datetime.min.time())
+        if start_datetime.tzinfo is None:
+            start_datetime = start_datetime.replace(tzinfo=timezone.utc)
+        query = query.filter(IdleSession.idle_start_time >= start_datetime)
+    
+    if end_date:
+        end_datetime = datetime.combine(end_date, datetime.max.time())
+        if end_datetime.tzinfo is None:
+            end_datetime = end_datetime.replace(tzinfo=timezone.utc)
+        query = query.filter(IdleSession.idle_start_time <= end_datetime)
+    
+    idle_sessions = (
+        query
         .order_by(IdleSession.idle_start_time.desc())
         .limit(limit)
         .all()

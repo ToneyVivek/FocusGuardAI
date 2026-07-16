@@ -353,3 +353,379 @@ class TestAnalyticsSummary:
         """Test retrieving unified timeline without JWT."""
         response = client.get("/api/v1/analytics/activity/my")
         assert response.status_code == 401
+
+    def test_date_filter_no_filters(self, client: TestClient, test_user_data, test_organization_data):
+        """Test date filtering with no filters returns all records."""
+        # Setup
+        client.post("/api/v1/auth/register", json=test_user_data)
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data={
+                "username": test_user_data["email"],
+                "password": test_user_data["password"],
+            },
+        )
+        token = login_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        client.post("/api/v1/organizations/create", json=test_organization_data, headers=headers)
+
+        # Create activities on different dates
+        now = datetime.now(timezone.utc)
+        
+        # Activity 1: 3 days ago
+        activity_1 = {
+            "browser_name": "Chrome",
+            "website_url": "https://github.com",
+            "website_domain": "github.com",
+            "page_title": "GitHub",
+            "session_start_time": (now - timedelta(days=3, seconds=100)).isoformat(),
+            "session_end_time": (now - timedelta(days=3)).isoformat(),
+        }
+        client.post("/api/v1/analytics/activity", json=activity_1, headers=headers)
+
+        # Activity 2: 1 day ago
+        activity_2 = {
+            "browser_name": "Chrome",
+            "website_url": "https://chat.openai.com",
+            "website_domain": "chat.openai.com",
+            "page_title": "ChatGPT",
+            "session_start_time": (now - timedelta(days=1, seconds=60)).isoformat(),
+            "session_end_time": (now - timedelta(days=1)).isoformat(),
+        }
+        client.post("/api/v1/analytics/activity", json=activity_2, headers=headers)
+
+        # Test no filters
+        timeline_resp = client.get("/api/v1/analytics/activity/my", headers=headers)
+        assert timeline_resp.status_code == 200
+        timeline = timeline_resp.json()
+        assert len(timeline) >= 2
+
+    def test_date_filter_start_date_only(self, client: TestClient, test_user_data, test_organization_data):
+        """Test date filtering with only start_date."""
+        # Setup
+        client.post("/api/v1/auth/register", json=test_user_data)
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data={
+                "username": test_user_data["email"],
+                "password": test_user_data["password"],
+            },
+        )
+        token = login_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        client.post("/api/v1/organizations/create", json=test_organization_data, headers=headers)
+
+        now = datetime.now(timezone.utc)
+        
+        # Activity 1: 3 days ago (should be excluded)
+        activity_1 = {
+            "browser_name": "Chrome",
+            "website_url": "https://github.com",
+            "website_domain": "github.com",
+            "page_title": "GitHub",
+            "session_start_time": (now - timedelta(days=3, seconds=100)).isoformat(),
+            "session_end_time": (now - timedelta(days=3)).isoformat(),
+        }
+        client.post("/api/v1/analytics/activity", json=activity_1, headers=headers)
+
+        # Activity 2: 1 day ago (should be included)
+        activity_2 = {
+            "browser_name": "Chrome",
+            "website_url": "https://chat.openai.com",
+            "website_domain": "chat.openai.com",
+            "page_title": "ChatGPT",
+            "session_start_time": (now - timedelta(days=1, seconds=60)).isoformat(),
+            "session_end_time": (now - timedelta(days=1)).isoformat(),
+        }
+        client.post("/api/v1/analytics/activity", json=activity_2, headers=headers)
+
+        # Test with start_date = 2 days ago
+        start_date = (now - timedelta(days=2)).date().isoformat()
+        timeline_resp = client.get(f"/api/v1/analytics/activity/my?start_date={start_date}", headers=headers)
+        assert timeline_resp.status_code == 200
+        timeline = timeline_resp.json()
+        assert len(timeline) >= 1
+        # Only activity_2 should be included
+        domains = [item["website_domain"] for item in timeline if item["type"] == "activity"]
+        assert "chat.openai.com" in domains
+        assert "github.com" not in domains
+
+    def test_date_filter_end_date_only(self, client: TestClient, test_user_data, test_organization_data):
+        """Test date filtering with only end_date."""
+        # Setup
+        client.post("/api/v1/auth/register", json=test_user_data)
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data={
+                "username": test_user_data["email"],
+                "password": test_user_data["password"],
+            },
+        )
+        token = login_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        client.post("/api/v1/organizations/create", json=test_organization_data, headers=headers)
+
+        now = datetime.now(timezone.utc)
+        
+        # Activity 1: 3 days ago (should be included)
+        activity_1 = {
+            "browser_name": "Chrome",
+            "website_url": "https://github.com",
+            "website_domain": "github.com",
+            "page_title": "GitHub",
+            "session_start_time": (now - timedelta(days=3, seconds=100)).isoformat(),
+            "session_end_time": (now - timedelta(days=3)).isoformat(),
+        }
+        client.post("/api/v1/analytics/activity", json=activity_1, headers=headers)
+
+        # Activity 2: 1 day ago (should be excluded)
+        activity_2 = {
+            "browser_name": "Chrome",
+            "website_url": "https://chat.openai.com",
+            "website_domain": "chat.openai.com",
+            "page_title": "ChatGPT",
+            "session_start_time": (now - timedelta(days=1, seconds=60)).isoformat(),
+            "session_end_time": (now - timedelta(days=1)).isoformat(),
+        }
+        client.post("/api/v1/analytics/activity", json=activity_2, headers=headers)
+
+        # Test with end_date = 2 days ago
+        end_date = (now - timedelta(days=2)).date().isoformat()
+        timeline_resp = client.get(f"/api/v1/analytics/activity/my?end_date={end_date}", headers=headers)
+        assert timeline_resp.status_code == 200
+        timeline = timeline_resp.json()
+        assert len(timeline) >= 1
+        # Only activity_1 should be included
+        domains = [item["website_domain"] for item in timeline if item["type"] == "activity"]
+        assert "github.com" in domains
+        assert "chat.openai.com" not in domains
+
+    def test_date_filter_both_dates(self, client: TestClient, test_user_data, test_organization_data):
+        """Test date filtering with both start_date and end_date."""
+        # Setup
+        client.post("/api/v1/auth/register", json=test_user_data)
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data={
+                "username": test_user_data["email"],
+                "password": test_user_data["password"],
+            },
+        )
+        token = login_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        client.post("/api/v1/organizations/create", json=test_organization_data, headers=headers)
+
+        now = datetime.now(timezone.utc)
+        
+        # Activity 1: 5 days ago (should be excluded)
+        activity_1 = {
+            "browser_name": "Chrome",
+            "website_url": "https://github.com",
+            "website_domain": "github.com",
+            "page_title": "GitHub",
+            "session_start_time": (now - timedelta(days=5, seconds=100)).isoformat(),
+            "session_end_time": (now - timedelta(days=5)).isoformat(),
+        }
+        client.post("/api/v1/analytics/activity", json=activity_1, headers=headers)
+
+        # Activity 2: 2 days ago (should be included)
+        activity_2 = {
+            "browser_name": "Chrome",
+            "website_url": "https://chat.openai.com",
+            "website_domain": "chat.openai.com",
+            "page_title": "ChatGPT",
+            "session_start_time": (now - timedelta(days=2, seconds=60)).isoformat(),
+            "session_end_time": (now - timedelta(days=2)).isoformat(),
+        }
+        client.post("/api/v1/analytics/activity", json=activity_2, headers=headers)
+
+        # Activity 3: Today (should be excluded)
+        activity_3 = {
+            "browser_name": "Chrome",
+            "website_url": "https://youtube.com",
+            "website_domain": "youtube.com",
+            "page_title": "YouTube",
+            "session_start_time": (now - timedelta(hours=2, seconds=30)).isoformat(),
+            "session_end_time": (now - timedelta(hours=2)).isoformat(),
+        }
+        client.post("/api/v1/analytics/activity", json=activity_3, headers=headers)
+
+        # Test with range: 3 days ago to yesterday
+        start_date = (now - timedelta(days=3)).date().isoformat()
+        end_date = (now - timedelta(days=1)).date().isoformat()
+        timeline_resp = client.get(f"/api/v1/analytics/activity/my?start_date={start_date}&end_date={end_date}", headers=headers)
+        assert timeline_resp.status_code == 200
+        timeline = timeline_resp.json()
+        # Only activity_2 should be included (activity_3 is today, which is after end_date of yesterday)
+        domains = [item["website_domain"] for item in timeline if item["type"] == "activity"]
+        assert "chat.openai.com" in domains
+        assert "github.com" not in domains
+        assert "youtube.com" not in domains
+
+    def test_date_filter_invalid_range(self, client: TestClient, test_user_data, test_organization_data):
+        """Test date filtering with invalid date range (end_date < start_date)."""
+        # Setup
+        client.post("/api/v1/auth/register", json=test_user_data)
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data={
+                "username": test_user_data["email"],
+                "password": test_user_data["password"],
+            },
+        )
+        token = login_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        client.post("/api/v1/organizations/create", json=test_organization_data, headers=headers)
+
+        # Test with invalid range
+        start_date = "2026-07-15"
+        end_date = "2026-07-01"
+        timeline_resp = client.get(f"/api/v1/analytics/activity/my?start_date={start_date}&end_date={end_date}", headers=headers)
+        assert timeline_resp.status_code == 422
+
+    def test_date_filter_invalid_format(self, client: TestClient, test_user_data, test_organization_data):
+        """Test date filtering with invalid date format."""
+        # Setup
+        client.post("/api/v1/auth/register", json=test_user_data)
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data={
+                "username": test_user_data["email"],
+                "password": test_user_data["password"],
+            },
+        )
+        token = login_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        client.post("/api/v1/organizations/create", json=test_organization_data, headers=headers)
+
+        # Test with invalid format
+        timeline_resp = client.get("/api/v1/analytics/activity/my?start_date=invalid-date", headers=headers)
+        assert timeline_resp.status_code == 422
+
+    def test_date_filter_no_records_in_range(self, client: TestClient, test_user_data, test_organization_data):
+        """Test date filtering when no records exist in the specified range."""
+        # Setup
+        client.post("/api/v1/auth/register", json=test_user_data)
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data={
+                "username": test_user_data["email"],
+                "password": test_user_data["password"],
+            },
+        )
+        token = login_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        client.post("/api/v1/organizations/create", json=test_organization_data, headers=headers)
+
+        now = datetime.now(timezone.utc)
+        
+        # Create activity 5 days ago
+        activity = {
+            "browser_name": "Chrome",
+            "website_url": "https://github.com",
+            "website_domain": "github.com",
+            "page_title": "GitHub",
+            "session_start_time": (now - timedelta(days=5, seconds=100)).isoformat(),
+            "session_end_time": (now - timedelta(days=5)).isoformat(),
+        }
+        client.post("/api/v1/analytics/activity", json=activity, headers=headers)
+
+        # Test with range that has no records (1 day ago to today)
+        start_date = (now - timedelta(days=1)).date().isoformat()
+        end_date = now.date().isoformat()
+        timeline_resp = client.get(f"/api/v1/analytics/activity/my?start_date={start_date}&end_date={end_date}", headers=headers)
+        assert timeline_resp.status_code == 200
+        timeline = timeline_resp.json()
+        assert len(timeline) == 0
+
+    def test_date_filter_summary_changes(self, client: TestClient, test_user_data, test_organization_data):
+        """Test that summary values change correctly with date filtering."""
+        # Setup
+        client.post("/api/v1/auth/register", json=test_user_data)
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data={
+                "username": test_user_data["email"],
+                "password": test_user_data["password"],
+            },
+        )
+        token = login_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        client.post("/api/v1/organizations/create", json=test_organization_data, headers=headers)
+
+        now = datetime.now(timezone.utc)
+        
+        # Activity 1: 5 days ago (100 seconds)
+        activity_1 = {
+            "browser_name": "Chrome",
+            "website_url": "https://github.com",
+            "website_domain": "github.com",
+            "page_title": "GitHub",
+            "session_start_time": (now - timedelta(days=5, seconds=100)).isoformat(),
+            "session_end_time": (now - timedelta(days=5)).isoformat(),
+        }
+        client.post("/api/v1/analytics/activity", json=activity_1, headers=headers)
+
+        # Activity 2: 1 day ago (50 seconds)
+        activity_2 = {
+            "browser_name": "Chrome",
+            "website_url": "https://chat.openai.com",
+            "website_domain": "chat.openai.com",
+            "page_title": "ChatGPT",
+            "session_start_time": (now - timedelta(days=1, seconds=50)).isoformat(),
+            "session_end_time": (now - timedelta(days=1)).isoformat(),
+        }
+        client.post("/api/v1/analytics/activity", json=activity_2, headers=headers)
+
+        # Get summary without filter (should include both)
+        summary_all = client.get("/api/v1/analytics/summary/my", headers=headers).json()
+        total_time_all = summary_all["total_time"]
+        
+        # Get summary with filter (should only include activity_2)
+        start_date = (now - timedelta(days=2)).date().isoformat()
+        end_date = now.date().isoformat()
+        summary_filtered = client.get(f"/api/v1/analytics/summary/my?start_date={start_date}&end_date={end_date}", headers=headers).json()
+        total_time_filtered = summary_filtered["total_time"]
+        
+        # Filtered time should be less than total time
+        assert total_time_filtered != total_time_all
+        # Filtered should only have 50 seconds (00:00:50)
+        assert total_time_filtered == "00:00:50"
+
+    def test_date_filter_idle_sessions(self, client: TestClient, test_user_data, test_organization_data):
+        """Test date filtering on idle sessions endpoint."""
+        # Setup
+        client.post("/api/v1/auth/register", json=test_user_data)
+        login_response = client.post(
+            "/api/v1/auth/login",
+            data={
+                "username": test_user_data["email"],
+                "password": test_user_data["password"],
+            },
+        )
+        token = login_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        client.post("/api/v1/organizations/create", json=test_organization_data, headers=headers)
+
+        now = datetime.now(timezone.utc)
+        
+        # Idle 1: 5 days ago
+        idle_1 = {
+            "idle_start_time": (now - timedelta(days=5, seconds=400)).isoformat(),
+            "idle_end_time": (now - timedelta(days=5, seconds=100)).isoformat(),
+        }
+        client.post("/api/v1/analytics/idle", json=idle_1, headers=headers)
+
+        # Idle 2: 1 day ago
+        idle_2 = {
+            "idle_start_time": (now - timedelta(days=1, seconds=400)).isoformat(),
+            "idle_end_time": (now - timedelta(days=1, seconds=100)).isoformat(),
+        }
+        client.post("/api/v1/analytics/idle", json=idle_2, headers=headers)
+
+        # Test with filter (should only include idle_2)
+        start_date = (now - timedelta(days=2)).date().isoformat()
+        idle_resp = client.get(f"/api/v1/analytics/idle/my?start_date={start_date}", headers=headers)
+        assert idle_resp.status_code == 200
+        idle_sessions = idle_resp.json()
+        assert len(idle_sessions) >= 1

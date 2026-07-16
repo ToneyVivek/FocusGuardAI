@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
+from typing import Optional
 
 from app.dependencies.deps import get_current_admin, get_current_user, get_db
 from app.middleware.rate_limit import limiter
@@ -18,6 +19,7 @@ from app.services.analytics_service import (
     get_user_analytics_summary,
     get_user_unified_timeline,
     get_organization_unified_timeline,
+    parse_and_validate_date_filter,
 )
 from app.services.idle_session_service import create_idle_session, get_user_idle_sessions
 
@@ -66,6 +68,8 @@ def get_my_activities(
     request: Request,
     limit: int = Query(default=100, ge=1, le=500, description="Number of records to return (max 500)"),
     offset: int = Query(default=0, ge=0, description="Number of records to skip"),
+    start_date: Optional[str] = Query(default=None, description="Filter activities from this date (ISO-8601 format: YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="Filter activities until this date (ISO-8601 format: YYYY-MM-DD)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -76,11 +80,23 @@ def get_my_activities(
     sorted by start time descending. Each item includes a 'type' field to distinguish
     between 'activity' and 'idle'.
     
+    Supports optional date filtering via start_date and end_date parameters.
+    
     Authentication: JWT token required (Bearer token)
     Organization: Automatically filtered by user's organization
     Rate Limiting: 60 requests per minute per IP
     """
-    return get_user_unified_timeline(db=db, user=current_user, limit=limit, offset=offset)
+    # Validate date filters
+    parsed_start, parsed_end = parse_and_validate_date_filter(start_date, end_date)
+    
+    return get_user_unified_timeline(
+        db=db, 
+        user=current_user, 
+        limit=limit, 
+        offset=offset,
+        start_date=parsed_start,
+        end_date=parsed_end
+    )
 
 
 @router.get("/activity/organization", response_model=list[UnifiedTimelineItem])
@@ -89,6 +105,8 @@ def get_organization_activity(
     request: Request,
     limit: int = Query(default=100, ge=1, le=500, description="Number of records to return (max 500)"),
     offset: int = Query(default=0, ge=0, description="Number of records to skip"),
+    start_date: Optional[str] = Query(default=None, description="Filter activities from this date (ISO-8601 format: YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="Filter activities until this date (ISO-8601 format: YYYY-MM-DD)"),
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
@@ -100,18 +118,32 @@ def get_organization_activity(
     sorted by start time descending. Each item includes a 'type' field to distinguish
     between 'activity' and 'idle'.
     
+    Supports optional date filtering via start_date and end_date parameters.
+    
     Authentication: JWT token required (Bearer token)
     Authorization: ADMIN role required
     Organization: Automatically filtered by admin's organization
     Rate Limiting: 60 requests per minute per IP
     """
-    return get_organization_unified_timeline(db=db, user=current_admin, limit=limit, offset=offset)
+    # Validate date filters
+    parsed_start, parsed_end = parse_and_validate_date_filter(start_date, end_date)
+    
+    return get_organization_unified_timeline(
+        db=db, 
+        user=current_admin, 
+        limit=limit, 
+        offset=offset,
+        start_date=parsed_start,
+        end_date=parsed_end
+    )
 
 
 @router.get("/summary/my", response_model=AnalyticsSummaryResponse)
 @limiter.limit("60/minute")
 def get_my_analytics_summary(
     request: Request,
+    start_date: Optional[str] = Query(default=None, description="Filter summary from this date (ISO-8601 format: YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="Filter summary until this date (ISO-8601 format: YYYY-MM-DD)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -128,11 +160,21 @@ def get_my_analytics_summary(
     - total_logged_time: Combined browser + idle time in HH:MM:SS
     - idle_sessions: Count of idle sessions recorded
 
+    Supports optional date filtering via start_date and end_date parameters.
+
     Authentication: JWT token required (Bearer token)
     Organization: Automatically derived from the current authenticated user's profile.
     Rate Limiting: 60 requests per minute per IP.
     """
-    return get_user_analytics_summary(db=db, user=current_user)
+    # Validate date filters
+    parsed_start, parsed_end = parse_and_validate_date_filter(start_date, end_date)
+    
+    return get_user_analytics_summary(
+        db=db, 
+        user=current_user,
+        start_date=parsed_start,
+        end_date=parsed_end
+    )
 
 
 @router.post(
@@ -175,6 +217,8 @@ def record_idle_session(
 def get_my_idle_sessions(
     request: Request,
     limit: int = Query(default=100, ge=1, le=500, description="Number of records to return (max 500)"),
+    start_date: Optional[str] = Query(default=None, description="Filter idle sessions from this date (ISO-8601 format: YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="Filter idle sessions until this date (ISO-8601 format: YYYY-MM-DD)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -182,10 +226,21 @@ def get_my_idle_sessions(
     Retrieves the authenticated user's idle sessions.
 
     Returns idle sessions from the user's organization only, ordered by start time descending.
+    
+    Supports optional date filtering via start_date and end_date parameters.
 
     Authentication: JWT token required (Bearer token)
     Organization: Automatically filtered by user's organization
     Rate Limiting: 60 requests per minute per IP
     """
-    return get_user_idle_sessions(db=db, user=current_user, limit=limit)
+    # Validate date filters
+    parsed_start, parsed_end = parse_and_validate_date_filter(start_date, end_date)
+    
+    return get_user_idle_sessions(
+        db=db, 
+        user=current_user, 
+        limit=limit,
+        start_date=parsed_start,
+        end_date=parsed_end
+    )
 
