@@ -1,0 +1,60 @@
+/**
+ * Popup styles for FocusGuard Extension
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 300px;
+  min-height: 200px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  background: #ffffff;
+}
+
+.popup-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  text-align: center;
+  gap: 12px;
+}
+
+.popup-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.popup-version {
+  font-size: 14px;
+  color: #666;
+}
+
+.popup-status {
+  font-size: 14px;
+  color: #22c55e;
+  font-weight: 500;
+}
+
+.options-container {
+  display: flex;
+  flex-direction: column;
+  padding: 40px;
+  gap: 16px;
+}
+
+.options-title {
+  font-size: 32px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.options-message {
+  font-size: 16px;
+  color: #666;
+}
