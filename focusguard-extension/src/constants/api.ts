@@ -22,10 +22,11 @@ export const HTTP_STATUS = {
  * API endpoints (for future use)
  */
 export const API_ENDPOINTS = {
-  // Authentication endpoints (future)
+  // Authentication endpoints
   LOGIN: '/auth/login',
   LOGOUT: '/auth/logout',
   REFRESH: '/auth/refresh',
+  ME: '/auth/me',
   
   // User endpoints (future)
   USER: '/user',

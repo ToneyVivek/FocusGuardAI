@@ -51,6 +51,7 @@ class ApiClient {
       body,
       timeout = this.defaultTimeout,
       signal,
+      contentType = 'json',
     } = options;
 
     const url = this.buildUrl(endpoint);
@@ -64,11 +65,25 @@ class ApiClient {
       });
     }
 
+    // Prepare request headers and body based on content type
+    const requestHeaders: Record<string, string> = { ...this.defaultHeaders, ...headers };
+    let requestBody: string | undefined;
+
+    if (body) {
+      if (contentType === 'form-urlencoded') {
+        requestHeaders['Content-Type'] = 'application/x-www-form-urlencoded';
+        requestBody = new URLSearchParams(body as Record<string, string>).toString();
+      } else {
+        requestHeaders['Content-Type'] = 'application/json';
+        requestBody = JSON.stringify(body);
+      }
+    }
+
     try {
       const response = await fetch(url, {
         method,
-        headers: { ...this.defaultHeaders, ...headers },
-        body: body ? JSON.stringify(body) : undefined,
+        headers: requestHeaders,
+        body: requestBody,
         signal: controller.signal,
       });
 

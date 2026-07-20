@@ -74,6 +74,7 @@ export interface RequestOptions {
   body?: unknown;
   timeout?: number;
   signal?: AbortSignal;
+  contentType?: 'json' | 'form-urlencoded';
 }
 
 /**

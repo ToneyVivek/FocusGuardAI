@@ -1,0 +1,212 @@
+/**
+ * Authentication Service for FocusGuard Extension
+ * Handles all authentication operations using the API client
+ */
+
+import { apiClient } from '../api/client';
+import { tokenService } from './tokens';
+import { storageService } from './storage';
+import { logger } from '../utils/logger';
+import { AuthError, ApiError } from '../utils/errors';
+import { API_ENDPOINTS, STORAGE_KEYS } from '../constants';
+import type { LoginResponse, RefreshResponse, User } from '../types/auth';
+
+/**
+ * Authentication service
+ */
+class AuthService {
+  /**
+   * Login with email and password
+   * Uses OAuth2PasswordRequestForm (form-urlencoded)
+   * Fetches user data separately via /auth/me
+   */
+  async login(email: string, password: string): Promise<User> {
+    try {
+      // Send login request as form-urlencoded (OAuth2PasswordRequestForm format)
+      const formData = {
+        username: email,
+        password: password,
+      };
+      const response = await apiClient.post<LoginResponse>(
+        API_ENDPOINTS.LOGIN,
+        formData,
+        { contentType: 'form-urlencoded' }
+      );
+
+      // Save tokens with 1 hour expiration (default)
+      await tokenService.saveTokens({
+        access_token: response.data.access_token,
+        refresh_token: response.data.refresh_token,
+        token_type: response.data.token_type,
+      });
+
+      // Set auth token in API client
+      apiClient.setAuthToken(response.data.access_token);
+
+      // Fetch user data from /auth/me
+      const userResponse = await apiClient.get<User>(API_ENDPOINTS.ME);
+      const user = userResponse.data;
+
+      // Save user data
+      await storageService.set(STORAGE_KEYS.USER_DATA, user);
+
+      logger.info('Login successful', { userId: user.id });
+      return user;
+    } catch (error) {
+      logger.error('Login failed', error);
+      if (error instanceof ApiError) {
+        throw new AuthError(error.message, 'login');
+      }
+      throw new AuthError('Login failed', 'login');
+    }
+  }
+
+  /**
+   * Logout and clear session
+   */
+  async logout(): Promise<void> {
+    try {
+      const accessToken = await tokenService.getAccessToken();
+      
+      if (accessToken) {
+        try {
+          const refreshToken = await tokenService.getRefreshToken();
+          const requestBody = refreshToken ? { refresh_token: refreshToken } : {};
+          await apiClient.post(API_ENDPOINTS.LOGOUT, requestBody);
+          logger.info('Logout successful');
+        } catch (error) {
+          // Continue with logout even if API call fails
+          logger.warn('Logout API call failed, clearing local session', error);
+        }
+      }
+
+      // Clear tokens and user data
+      await this.clearSession();
+    } catch (error) {
+      logger.error('Logout failed', error);
+      throw new AuthError('Logout failed', 'logout');
+    }
+  }
+
+  /**
+   * Refresh access token
+   */
+  async refresh(): Promise<string> {
+    try {
+      const refreshToken = await tokenService.getRefreshToken();
+      
+      if (!refreshToken) {
+        throw new AuthError('No refresh token available', 'refresh');
+      }
+
+      const response = await apiClient.post<RefreshResponse>(API_ENDPOINTS.REFRESH, {
+        refresh_token: refreshToken,
+      });
+
+      // Update tokens
+      await tokenService.saveTokens({
+        access_token: response.data.access_token,
+        refresh_token: response.data.refresh_token,
+        token_type: response.data.token_type,
+      });
+
+      // Update auth token in API client
+      apiClient.setAuthToken(response.data.access_token);
+
+      logger.info('Token refresh successful');
+      return response.data.access_token;
+    } catch (error) {
+      logger.error('Token refresh failed', error);
+      await this.clearSession();
+      throw new AuthError('Token refresh failed', 'refresh');
+    }
+  }
+
+  /**
+   * Get current authenticated user
+   */
+  async getCurrentUser(): Promise<User | null> {
+    try {
+      const user = await storageService.get<User>(STORAGE_KEYS.USER_DATA);
+      return user;
+    } catch (error) {
+      logger.error('Failed to get current user', error);
+      return null;
+    }
+  }
+
+  /**
+   * Check if user is authenticated
+   */
+  async isAuthenticated(): Promise<boolean> {
+    try {
+      const hasTokens = await tokenService.hasTokens();
+      const isExpired = await tokenService.isTokenExpired();
+      return hasTokens && !isExpired;
+    } catch (error) {
+      logger.error('Failed to check authentication status', error);
+      return false;
+    }
+  }
+
+  /**
+   * Clear session data
+   */
+  async clearSession(): Promise<void> {
+    try {
+      await tokenService.removeTokens();
+      await storageService.remove(STORAGE_KEYS.USER_DATA);
+      apiClient.clearAuthToken();
+      logger.info('Session cleared');
+    } catch (error) {
+      logger.error('Failed to clear session', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Restore session from storage
+   * Fetches fresh user data via /auth/me after obtaining valid access token
+   */
+  async restoreSession(): Promise<User | null> {
+    try {
+      const isAuth = await this.isAuthenticated();
+      
+      if (!isAuth) {
+        // Try to refresh if expired but refresh token exists
+        const hasRefreshToken = await tokenService.getRefreshToken();
+        if (hasRefreshToken) {
+          await this.refresh();
+          // Fetch fresh user data after refresh
+          const userResponse = await apiClient.get<User>(API_ENDPOINTS.ME);
+          const user = userResponse.data;
+          await storageService.set(STORAGE_KEYS.USER_DATA, user);
+          return user;
+        }
+        return null;
+      }
+
+      // Set auth token in API client
+      const accessToken = await tokenService.getAccessToken();
+      if (accessToken) {
+        apiClient.setAuthToken(accessToken);
+      }
+
+      // Fetch fresh user data from /auth/me
+      const userResponse = await apiClient.get<User>(API_ENDPOINTS.ME);
+      const user = userResponse.data;
+      await storageService.set(STORAGE_KEYS.USER_DATA, user);
+      
+      return user;
+    } catch (error) {
+      logger.error('Failed to restore session', error);
+      await this.clearSession();
+      return null;
+    }
+  }
+}
+
+/**
+ * Singleton authentication service instance
+ */
+export const authService = new AuthService();

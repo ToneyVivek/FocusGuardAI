@@ -21,6 +21,7 @@ class UserResponse(BaseModel):
     full_name: str
     role: UserRole
     organization_id: Optional[int] = None
+    organization: Optional[OrganizationSummary] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -86,6 +87,14 @@ class LogoutRequest(BaseModel):
 # ----------------- Organization Schemas -----------------
 class OrganizationCreate(BaseModel):
     organization_name: str = Field(..., min_length=2, max_length=100)
+
+
+class OrganizationSummary(BaseModel):
+    """Minimal organization summary for nested responses."""
+    id: int
+    name: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OrganizationResponse(BaseModel):

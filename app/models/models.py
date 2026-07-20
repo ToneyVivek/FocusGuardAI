@@ -92,6 +92,11 @@ class Organization(Base, TimestampMixin, SoftDeleteMixin):
     users = relationship("User", back_populates="organization")
     invitations = relationship("Invitation", back_populates="organization", cascade="all, delete-orphan")
 
+    @property
+    def name(self) -> str:
+        """Alias for organization_name for API responses."""
+        return self.organization_name
+
 
 class Invitation(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "invitations"

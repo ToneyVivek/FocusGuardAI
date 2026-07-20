@@ -1,16 +1,19 @@
 /**
  * Popup component for FocusGuard Extension
- * Displays extension status and version
+ * Displays authentication UI or user information
  */
 
-import { EXTENSION } from '../constants';
+import { useAuth } from '../contexts/AuthContext';
+import { LoginForm } from './auth/LoginForm';
+import { AuthenticatedView } from './auth/AuthenticatedView';
+import { AuthGuard } from './auth/AuthGuard';
 
 export function Popup() {
+  const { isAuthenticated } = useAuth();
+
   return (
-    <div className="popup-container">
-      <h1 className="popup-title">{EXTENSION.NAME}</h1>
-      <p className="popup-version">Version {EXTENSION.VERSION}</p>
-      <p className="popup-status">Status: Extension Loaded Successfully</p>
-    </div>
+    <AuthGuard>
+      {isAuthenticated ? <AuthenticatedView /> : <LoginForm />}
+    </AuthGuard>
   );
 }

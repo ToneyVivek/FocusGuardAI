@@ -5,6 +5,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy.orm import joinedload
 
 from app.config.config import settings
 import logging
@@ -59,7 +60,7 @@ def get_current_user(
     except JWTError:
         raise credentials_exception
 
-    user = db.query(User).filter(User.id == token_data.user_id, User.is_deleted == False).first()
+    user = db.query(User).options(joinedload(User.organization)).filter(User.id == token_data.user_id, User.is_deleted == False).first()
     if user is None:
         raise credentials_exception
     if not user.is_active:
