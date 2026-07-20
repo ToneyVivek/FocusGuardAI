@@ -37,13 +37,22 @@ class StorageService {
   async set<T = unknown>(key: string, value: T): Promise<void> {
     try {
       const prefixedKey = this.prefixKey(key);
+      logger.info(`[STORAGE SERVICE] Before set - Key: ${key}, Prefixed key: ${prefixedKey}, Value type: ${typeof value}`);
+      
       const data: Record<string, T> = {
         [prefixedKey]: value,
       };
       
       await chrome.storage.local.set(data);
+      logger.info(`[STORAGE SERVICE] After chrome.storage.local.set - SUCCESS - Key: ${key}, Prefixed key: ${prefixedKey}`);
+      
+      // Verify the write
+      const verify = await chrome.storage.local.get(prefixedKey);
+      logger.info(`[STORAGE SERVICE] Verification after set - Key: ${key}, Prefixed key: ${prefixedKey}, Exists: ${prefixedKey in verify}`);
+      
       logger.debug(`Storage set: ${key}`, value);
     } catch (error) {
+      logger.error(`[STORAGE SERVICE] FAILED to set value - Key: ${key}, Error: ${error}, Stack: ${error instanceof Error ? error.stack : String(error)}`);
       const message = `Failed to set value for key: ${key}`;
       logger.error(message, error);
       throw new StorageError(message, key, 'set');

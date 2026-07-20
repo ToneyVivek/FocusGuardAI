@@ -1,22 +1,30 @@
 /**
  * Background service worker for FocusGuard Extension
- * Handles extension lifecycle events
+ * Handles extension lifecycle events and browser activity tracking
  */
 
-import { LOG_MESSAGES } from '../constants';
-
-console.log(LOG_MESSAGES.EXTENSION_STARTED);
+import { logger } from '../utils/logger';
+import { registerTabListeners } from './tabListeners';
+import { registerWindowListeners } from './windowListeners';
+import { registerLifecycleListeners } from './lifecycleListeners';
+import { handleExtensionStartup } from './lifecycleListeners';
 
 /**
- * Handle extension installation
+ * Initialize background service worker
  */
-chrome.runtime.onInstalled.addListener(() => {
-  console.log(LOG_MESSAGES.EXTENSION_INSTALLED);
-});
+function initializeBackground(): void {
+  logger.info('Background service worker initializing');
 
-/**
- * Handle browser startup
- */
-chrome.runtime.onStartup.addListener(() => {
-  console.log(LOG_MESSAGES.BROWSER_STARTED);
-});
+  // Register all event listeners
+  registerTabListeners();
+  registerWindowListeners();
+  registerLifecycleListeners();
+
+  // Handle extension startup
+  handleExtensionStartup();
+
+  logger.info('Background service worker initialized');
+}
+
+// Initialize on service worker start
+initializeBackground();
