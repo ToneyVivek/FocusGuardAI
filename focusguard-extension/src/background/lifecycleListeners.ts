@@ -5,6 +5,7 @@
 
 import { logger } from '../utils/logger';
 import { activityQueueService } from '../services/activityQueue';
+import { sessionService } from '../services/session';
 import type { LifecycleActivity } from '../types/browser';
 
 /**
@@ -74,6 +75,16 @@ export function handleBrowserStartup(): void {
 
   logger.info('[LIFECYCLE LISTENER] About to call addActivity for browser_startup');
   activityQueueService.addActivity(activity);
+}
+
+/**
+ * Handle browser shutdown event
+ */
+export async function handleBrowserShutdown(): Promise<void> {
+  logger.info('[LIFECYCLE LISTENER] handleBrowserShutdown called');
+  
+  // End all active sessions
+  await sessionService.endAllSessions();
 }
 
 /**

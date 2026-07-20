@@ -7,7 +7,7 @@ import { logger } from '../utils/logger';
 import { registerTabListeners } from './tabListeners';
 import { registerWindowListeners } from './windowListeners';
 import { registerLifecycleListeners } from './lifecycleListeners';
-import { handleExtensionStartup } from './lifecycleListeners';
+import { handleExtensionStartup, handleBrowserShutdown } from './lifecycleListeners';
 
 /**
  * Initialize background service worker
@@ -25,6 +25,12 @@ function initializeBackground(): void {
 
   logger.info('Background service worker initialized');
 }
+
+// Handle browser shutdown
+chrome.runtime.onSuspend.addListener(async () => {
+  logger.info('Browser shutdown detected, ending all sessions');
+  await handleBrowserShutdown();
+});
 
 // Initialize on service worker start
 initializeBackground();

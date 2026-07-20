@@ -5,6 +5,7 @@
 
 import { logger } from '../utils/logger';
 import { activityQueueService } from '../services/activityQueue';
+import { sessionService } from '../services/session';
 import type { WindowActivity } from '../types/browser';
 
 /**
@@ -37,6 +38,9 @@ export function handleWindowFocusChanged(windowId: number): void {
     logger.info('[WINDOW LISTENER] About to call addActivity for window_focus_lost');
     activityQueueService.addActivity(activity);
     logger.info('Window focus lost (no window focused)');
+    
+    // End current session when window loses focus
+    sessionService.endSession('window_focus_lost');
     return;
   }
 
