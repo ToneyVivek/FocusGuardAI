@@ -6,6 +6,7 @@
 import { logger } from '../utils/logger';
 import { activityQueueService } from '../services/activityQueue';
 import { sessionService } from '../services/session';
+import { syncService } from '../services/sync';
 import type { WindowActivity } from '../types/browser';
 
 /**
@@ -59,6 +60,11 @@ export function handleWindowFocusChanged(windowId: number): void {
   logger.info('[WINDOW LISTENER] About to call addActivity for window_focus_changed');
   activityQueueService.addActivity(activity);
   logger.info(`Window focus changed - Window ID: ${windowId}, Focused: true`);
+  
+  // Trigger sync when browser regains focus
+  syncService.triggerSync().catch(error => {
+    logger.warn('[WINDOW LISTENER] Failed to trigger sync on window focus', error);
+  });
 }
 
 /**

@@ -7,6 +7,7 @@ from app.middleware.rate_limit import limiter
 from app.models.models import User
 from app.schemas.analytics_schemas import (
     BrowserActivityCreate,
+    BrowserActivityBatchCreate,
     BrowserActivityResponse,
     AnalyticsSummaryResponse,
     UnifiedTimelineItem,
@@ -60,6 +61,46 @@ def record_activity(
     Rate Limiting: 100 requests per minute per IP
     """
     return record_browser_activity(db=db, activity_in=activity_in, user=current_user)
+
+
+@router.post(
+    "/activity/batch",
+    response_model=list[BrowserActivityResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit("20/minute")
+def record_activity_batch(
+    request: Request,
+    batch_in: BrowserActivityBatchCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Records multiple completed browser sessions in a batch.
+    
+    Called by browser extension for batch synchronization.
+    Allows uploading up to 50 sessions in a single request.
+    
+    Browser extension provides raw browser data for each session:
+    - browser_name, website_url, website_domain, page_title
+    - session_start_time, session_end_time
+    
+    Backend determines for each session:
+    - website_category (via classification service)
+    - productivity_classification (via classification service)
+    - duration_seconds (calculated from timestamps)
+    - organization_id (from JWT, not client)
+    - user_id (from JWT, not client)
+    
+    Authentication: JWT token required (Bearer token)
+    Organization: Automatically extracted from authenticated user
+    Rate Limiting: 20 requests per minute per IP
+    """
+    results = []
+    for activity_in in batch_in.sessions:
+        result = record_browser_activity(db=db, activity_in=activity_in, user=current_user)
+        results.append(result)
+    return results
 
 
 @router.get("/activity/my", response_model=list[UnifiedTimelineItem])

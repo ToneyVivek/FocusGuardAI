@@ -8,6 +8,7 @@ import { registerTabListeners } from './tabListeners';
 import { registerWindowListeners } from './windowListeners';
 import { registerLifecycleListeners } from './lifecycleListeners';
 import { handleExtensionStartup, handleBrowserShutdown } from './lifecycleListeners';
+import { syncService } from '../services/sync';
 
 /**
  * Initialize background service worker
@@ -22,6 +23,9 @@ function initializeBackground(): void {
 
   // Handle extension startup
   handleExtensionStartup();
+
+  // Start periodic sync
+  syncService.startPeriodicSync();
 
   logger.info('Background service worker initialized');
 }

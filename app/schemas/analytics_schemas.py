@@ -64,6 +64,25 @@ class BrowserActivityCreate(BaseModel):
         return domain_normalization_service.normalize_domain(v)
 
 
+class BrowserActivityBatchCreate(BaseModel):
+    """
+    Request schema for batch recording of completed browser sessions.
+    Sent by browser extension for batch synchronization.
+    
+    Browser extension provides raw browser data for multiple sessions.
+    Backend determines category, productivity, and duration for each.
+    """
+    sessions: list[BrowserActivityCreate] = Field(..., min_length=1, max_length=50, description="List of browser sessions to record (max 50)")
+
+    @field_validator("sessions")
+    @classmethod
+    def validate_sessions_batch(cls, v: list[BrowserActivityCreate]) -> list[BrowserActivityCreate]:
+        """Validate that batch size does not exceed maximum."""
+        if len(v) > 50:
+            raise ValueError("Cannot upload more than 50 sessions in a single batch")
+        return v
+
+
 class BrowserActivityResponse(BaseModel):
     """
     Response schema for recorded browser activity.

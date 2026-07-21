@@ -32,9 +32,14 @@ export const API_ENDPOINTS = {
   USER: '/user',
   USER_PROFILE: '/user/profile',
   
-  // Activity endpoints (future)
-  ACTIVITY: '/activity',
-  ACTIVITY_SUMMARY: '/activity/summary',
+  // Activity endpoints
+  ACTIVITY: '/analytics/activity',
+  ACTIVITY_BATCH: '/analytics/activity/batch',
+  ACTIVITY_SUMMARY: '/analytics/summary/my',
+  ACTIVITY_MY: '/analytics/activity/my',
+  ACTIVITY_ORGANIZATION: '/analytics/activity/organization',
+  IDLE: '/analytics/idle',
+  IDLE_MY: '/analytics/idle/my',
 } as const;
 
 /**

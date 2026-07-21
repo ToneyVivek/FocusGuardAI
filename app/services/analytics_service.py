@@ -1,4 +1,5 @@
 import logging
+import math
 from datetime import datetime, date
 from typing import Optional, Tuple
 
@@ -179,9 +180,9 @@ def record_browser_activity(
     )
     
     # Calculate duration (backend business logic)
-    duration_seconds = int(
-        (activity_in.session_end_time - activity_in.session_start_time).total_seconds()
-    )
+    duration_seconds = (
+        activity_in.session_end_time - activity_in.session_start_time
+    ).total_seconds()
     
     # Validate duration is positive
     if duration_seconds <= 0:
@@ -189,6 +190,9 @@ def record_browser_activity(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid session duration: session_end_time must be after session_start_time",
         )
+    
+    # Convert to integer for database column (count any positive session as at least 1 second)
+    duration_seconds_int = max(1, math.ceil(duration_seconds))
     
     # Create browser activity record
     db_activity = BrowserActivity(
@@ -203,7 +207,7 @@ def record_browser_activity(
         productivity_classification=productivity_classification,  # Backend-determined
         session_start_time=activity_in.session_start_time,
         session_end_time=activity_in.session_end_time,
-        duration_seconds=duration_seconds,  # Backend-calculated
+        duration_seconds=duration_seconds_int,  # Backend-calculated (integer)
     )
     
     try:

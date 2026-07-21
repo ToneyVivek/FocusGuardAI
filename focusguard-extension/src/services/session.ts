@@ -7,6 +7,7 @@ import { logger } from '../utils/logger';
 import { sessionQueueService } from './sessionQueue';
 import { classificationService } from './classification';
 import { storageService } from './storage';
+import { syncService } from './sync';
 import { STORAGE_KEYS } from '../constants';
 import { extractUrlParts } from '../utils/url';
 import type { WebsiteSession, ActiveSessionState } from '../types/session';
@@ -68,6 +69,12 @@ class SessionService {
     url: string | null,
     title: string | null
   ): Promise<void> {
+    // Skip non-web URLs (chrome://, edge://, about:blank, etc.)
+    if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+      logger.info(`[SESSION SERVICE] Ignoring non-web URL: ${url}`);
+      return;
+    }
+
     try {
       // End current session if exists
       if (this.currentSession) {
@@ -138,6 +145,11 @@ class SessionService {
 
       // Save completed session to queue
       await sessionQueueService.addSession(completedSession);
+
+      // Trigger sync after session completion
+      syncService.triggerSync().catch(error => {
+        logger.warn('[SESSION SERVICE] Failed to trigger sync after session completion', error);
+      });
 
       // Clear current session
       this.currentSession = null;

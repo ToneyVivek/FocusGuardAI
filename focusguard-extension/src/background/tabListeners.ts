@@ -86,12 +86,13 @@ export function handleTabActivated(activeInfo: any): void {
       logger.info(`[TAB LISTENER] About to call addActivity for tab_activated - Tab ID: ${tab.id}, URL: ${tab.url}`);
       activityQueueService.addActivity(activity);
       logger.info(`Tab activated - Tab ID: ${tab.id}, URL: ${tab.url}`);
-      
-      // Start session for activated tab
-      sessionService.startSession(tab.id ?? null, activeInfo.windowId ?? null, tab.url ?? null, tab.title ?? null);
     } else {
       logger.info(`[TAB LISTENER] Activity is null (filtered URL) - URL: ${tab.url}`);
     }
+    
+    // Start session for activated tab (independent of activity filtering)
+    sessionService.startSession(tab.id ?? null, activeInfo.windowId ?? null, tab.url ?? null, tab.title ?? null)
+      .catch(error => logger.error('[TAB LISTENER] Failed to start session', error));
   });
 }
 
@@ -130,7 +131,8 @@ export function handleTabRemoved(tabId: number, removeInfo: any): void {
   delete tabStateCache[tabId];
   
   // Close session for this tab
-  sessionService.closeSession(tabId);
+  sessionService.closeSession(tabId)
+    .catch(error => logger.error('[TAB LISTENER] Failed to close session', error));
   
   // For tab removed, we can't get the tab object as it's already closed
   // We create a minimal activity record
@@ -211,7 +213,8 @@ export function handleTabUpdated(
   // Handle URL change - switch session
   if (urlChanged) {
     logger.info(`[TAB LISTENER] URL changed, switching session - Tab ID: ${tabId}, New URL: ${currentUrl}`);
-    sessionService.switchSession(tabId, tab.windowId ?? null, currentUrl, currentTitle);
+    sessionService.switchSession(tabId, tab.windowId ?? null, currentUrl, currentTitle)
+      .catch(error => logger.error('[TAB LISTENER] Failed to switch session', error));
   }
 
   const activity = createTabActivity('tab_updated', tab);
