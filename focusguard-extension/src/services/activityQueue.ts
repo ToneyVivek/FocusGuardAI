@@ -6,6 +6,7 @@
 import { storageService } from './storage';
 import { logger } from '../utils/logger';
 import { STORAGE_KEYS } from '../constants';
+import { QUEUE_CONFIG } from '../config';
 import type { ActivityQueueItem, TabActivity, WindowActivity, LifecycleActivity } from '../types/browser';
 import type { User } from '../types/auth';
 
@@ -13,11 +14,6 @@ import type { User } from '../types/auth';
  * Storage key for activity queue
  */
 const ACTIVITY_QUEUE_KEY = 'activity_queue';
-
-/**
- * Maximum queue size to prevent storage overflow
- */
-const MAX_QUEUE_SIZE = 1000;
 
 /**
  * Activity Queue Service
@@ -82,9 +78,9 @@ class ActivityQueueService {
       logger.info(`[ACTIVITY QUEUE] Queue size after unshift: ${queue.length}`);
 
       // Enforce maximum queue size
-      if (queue.length > MAX_QUEUE_SIZE) {
-        queue.splice(MAX_QUEUE_SIZE);
-        logger.warn(`Activity queue truncated to ${MAX_QUEUE_SIZE} items`);
+      if (queue.length > QUEUE_CONFIG.MAX_ACTIVITY_SIZE) {
+        queue.splice(QUEUE_CONFIG.MAX_ACTIVITY_SIZE);
+        logger.warn(`Activity queue truncated to ${QUEUE_CONFIG.MAX_ACTIVITY_SIZE} items`);
       }
 
       logger.info(`[ACTIVITY QUEUE] Before storageService.set - Key: ${ACTIVITY_QUEUE_KEY}, Queue size: ${queue.length}`);

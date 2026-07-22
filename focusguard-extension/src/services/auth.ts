@@ -22,16 +22,31 @@ class AuthService {
    */
   async login(email: string, password: string): Promise<User> {
     try {
+      logger.info('[AUTH] Attempting login', { email, endpoint: API_ENDPOINTS.LOGIN });
+
       // Send login request as form-urlencoded (OAuth2PasswordRequestForm format)
       const formData = {
         username: email,
         password: password,
       };
+
+      logger.info('[AUTH] Sending login request', {
+        endpoint: API_ENDPOINTS.LOGIN,
+        contentType: 'form-urlencoded',
+        formData: { username: email, password: '***' },
+      });
+
       const response = await apiClient.post<LoginResponse>(
         API_ENDPOINTS.LOGIN,
         formData,
         { contentType: 'form-urlencoded' }
       );
+
+      logger.info('[AUTH] Login API response received', {
+        hasAccessToken: !!response.data.access_token,
+        hasRefreshToken: !!response.data.refresh_token,
+        tokenType: response.data.token_type,
+      });
 
       // Save tokens with 1 hour expiration (default)
       await tokenService.saveTokens({
@@ -40,20 +55,31 @@ class AuthService {
         token_type: response.data.token_type,
       });
 
+      logger.info('[AUTH] Tokens saved successfully');
+
       // Set auth token in API client
       apiClient.setAuthToken(response.data.access_token);
 
+      logger.info('[AUTH] Auth token set in API client');
+
       // Fetch user data from /auth/me
+      logger.info('[AUTH] Fetching user data from /auth/me');
       const userResponse = await apiClient.get<User>(API_ENDPOINTS.ME);
       const user = userResponse.data;
+
+      logger.info('[AUTH] User data received', { userId: user.id, email: user.email });
 
       // Save user data
       await storageService.set(STORAGE_KEYS.USER_DATA, user);
 
+      logger.info('[AUTH] User data saved to storage', { userId: user.id });
       logger.info('Login successful', { userId: user.id });
       return user;
     } catch (error) {
-      logger.error('Login failed', error);
+      logger.error('[AUTH] Login failed', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       if (error instanceof ApiError) {
         throw new AuthError(error.message, 'login');
       }

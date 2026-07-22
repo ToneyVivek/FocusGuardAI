@@ -38,7 +38,9 @@ export const API_ENDPOINTS = {
   ACTIVITY_SUMMARY: '/analytics/summary/my',
   ACTIVITY_MY: '/analytics/activity/my',
   ACTIVITY_ORGANIZATION: '/analytics/activity/organization',
+  EVENTS_BATCH: '/analytics/events/batch',
   IDLE: '/analytics/idle',
+  IDLE_BATCH: '/analytics/idle/batch',
   IDLE_MY: '/analytics/idle/my',
 } as const;
 

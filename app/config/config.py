@@ -17,10 +17,17 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # Idle Session Configuration
-    IDLE_THRESHOLD_SECONDS: int = 300  # 5 minutes default
+    # DEVELOPMENT MODE: Set to 15 seconds for testing (change to 300 for production)
+    IDLE_THRESHOLD_SECONDS: int = 15
+    IDLE_MIN_DURATION_SECONDS: int = 15
+    IDLE_BATCH_SIZE: int = 50
+
+    # Session Batch Configuration
+    SESSION_BATCH_SIZE: int = 50
 
     # CORS — comma-separated list of allowed origins
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
+    # DEVELOPMENT: Includes chrome-extension:// for extension development
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000,chrome-extension://*"
 
     # SMTP / Email Service Configuration
     SMTP_HOST: str = ""

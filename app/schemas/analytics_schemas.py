@@ -78,8 +78,10 @@ class BrowserActivityBatchCreate(BaseModel):
     @classmethod
     def validate_sessions_batch(cls, v: list[BrowserActivityCreate]) -> list[BrowserActivityCreate]:
         """Validate that batch size does not exceed maximum."""
-        if len(v) > 50:
-            raise ValueError("Cannot upload more than 50 sessions in a single batch")
+        from app.config.config import settings
+        max_batch_size = settings.SESSION_BATCH_SIZE
+        if len(v) > max_batch_size:
+            raise ValueError(f"Cannot upload more than {max_batch_size} sessions in a single batch")
         return v
 
 

@@ -32,6 +32,27 @@ class IdleSessionCreate(BaseModel):
     )
 
 
+class IdleSessionBatchCreate(BaseModel):
+    """
+    Request schema for batch recording of idle sessions.
+    Sent by browser extension for batch synchronization.
+    
+    Browser extension provides raw idle data for multiple sessions.
+    Backend determines duration_seconds for each.
+    """
+    sessions: list[IdleSessionCreate] = Field(..., min_length=1, max_length=50, description="List of idle sessions to record (max 50)")
+
+    @field_validator("sessions")
+    @classmethod
+    def validate_sessions_batch(cls, v: list[IdleSessionCreate]) -> list[IdleSessionCreate]:
+        """Validate that batch size does not exceed maximum."""
+        from app.config.config import settings
+        max_batch_size = settings.IDLE_BATCH_SIZE
+        if len(v) > max_batch_size:
+            raise ValueError(f"Cannot upload more than {max_batch_size} idle sessions in a single batch")
+        return v
+
+
 class IdleSessionResponse(BaseModel):
     """Response schema for idle session data."""
     id: int

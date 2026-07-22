@@ -5,17 +5,13 @@
 
 import { storageService } from './storage';
 import { logger } from '../utils/logger';
+import { QUEUE_CONFIG } from '../config';
 import type { SessionQueueItem, WebsiteSession } from '../types/session';
 
 /**
  * Storage key for session queue
  */
 const SESSION_QUEUE_KEY = 'activity_sessions';
-
-/**
- * Maximum queue size to prevent storage overflow
- */
-const MAX_QUEUE_SIZE = 1000;
 
 /**
  * Session Queue Service
@@ -43,9 +39,9 @@ class SessionQueueService {
       logger.info(`[SESSION QUEUE] Queue size after unshift: ${queue.length}`);
 
       // Enforce maximum queue size
-      if (queue.length > MAX_QUEUE_SIZE) {
-        queue.splice(MAX_QUEUE_SIZE);
-        logger.warn(`Session queue truncated to ${MAX_QUEUE_SIZE} items`);
+      if (queue.length > QUEUE_CONFIG.MAX_SESSION_SIZE) {
+        queue.splice(QUEUE_CONFIG.MAX_SESSION_SIZE);
+        logger.warn(`Session queue truncated to ${QUEUE_CONFIG.MAX_SESSION_SIZE} items`);
       }
 
       logger.info(`[SESSION QUEUE] Before storageService.set - Key: ${SESSION_QUEUE_KEY}, Queue size: ${queue.length}`);

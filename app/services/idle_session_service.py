@@ -81,10 +81,10 @@ def validate_idle_session(
         )
     
     # Validate against idle threshold
-    if duration_seconds < settings.IDLE_THRESHOLD_SECONDS:
+    if duration_seconds < settings.IDLE_MIN_DURATION_SECONDS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Idle session duration ({duration_seconds}s) is below threshold ({settings.IDLE_THRESHOLD_SECONDS}s)",
+            detail=f"Idle session duration ({duration_seconds}s) is below threshold ({settings.IDLE_MIN_DURATION_SECONDS}s)",
         )
     
     # Validate user has organization

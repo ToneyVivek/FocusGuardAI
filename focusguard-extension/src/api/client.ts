@@ -80,6 +80,14 @@ class ApiClient {
     }
 
     try {
+      logger.debug(`[API CLIENT] Making ${method} request to ${url}`, {
+        endpoint,
+        method,
+        headers: requestHeaders,
+        hasBody: !!requestBody,
+        contentType,
+      });
+
       const response = await fetch(url, {
         method,
         headers: requestHeaders,
@@ -89,12 +97,18 @@ class ApiClient {
 
       clearTimeout(timeoutId);
 
+      logger.debug(`[API CLIENT] Response received from ${endpoint}`, {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+      });
+
       if (!response.ok) {
         await this.handleErrorResponse(response, endpoint);
       }
 
       const data = await response.json();
-      
+
       logger.debug(`API ${method} ${endpoint} success`, data);
       return {
         data,
@@ -157,9 +171,11 @@ class ApiClient {
    */
   private async handleErrorResponse(response: Response, endpoint: string): Promise<never> {
     let errorData: ApiErrorResponse;
+    let errorText = '';
 
     try {
-      errorData = await response.json();
+      errorText = await response.text();
+      errorData = JSON.parse(errorText);
     } catch {
       errorData = {
         error: 'Unknown Error',
@@ -168,10 +184,17 @@ class ApiClient {
       };
     }
 
-    logger.error(`API Error: ${endpoint}`, errorData);
+    // Log detailed error information
+    logger.error(`API Error: ${endpoint}`, {
+      status: response.status,
+      statusText: response.statusText,
+      errorData: errorData,
+      rawResponse: errorText,
+    });
+
     throw new ApiError(
-      errorData.message,
-      errorData.statusCode,
+      errorData.message || response.statusText || 'An error occurred',
+      errorData.statusCode || response.status,
       endpoint
     );
   }

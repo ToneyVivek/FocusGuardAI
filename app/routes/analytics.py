@@ -12,7 +12,8 @@ from app.schemas.analytics_schemas import (
     AnalyticsSummaryResponse,
     UnifiedTimelineItem,
 )
-from app.schemas.idle_schemas import IdleSessionCreate, IdleSessionResponse
+from app.schemas.idle_schemas import IdleSessionCreate, IdleSessionBatchCreate, IdleSessionResponse
+from app.schemas.activity_schemas import ActivityEventCreate, ActivityEventBatchCreate, ActivityEventBatchResponse
 from app.services.analytics_service import (
     get_organization_activities,
     get_user_activities,
@@ -23,6 +24,7 @@ from app.services.analytics_service import (
     parse_and_validate_date_filter,
 )
 from app.services.idle_session_service import create_idle_session, get_user_idle_sessions
+from app.services.activity_service import create_activity_events_batch
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
@@ -251,6 +253,93 @@ def record_idle_session(
     Rate Limiting: 100 requests per minute per IP
     """
     return create_idle_session(db=db, idle_in=idle_in, user=current_user)
+
+
+@router.post(
+    "/idle/batch",
+    response_model=list[IdleSessionResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit("20/minute")
+def record_idle_session_batch(
+    request: Request,
+    batch_in: IdleSessionBatchCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Records multiple idle sessions in a batch.
+
+    Called by browser extension for batch synchronization.
+    Allows uploading up to 50 idle sessions in a single request.
+
+    Browser extension provides raw idle data for each session:
+    - idle_start_time: When the idle period began
+    - idle_end_time: When the idle period ended
+
+    Backend determines for each session:
+    - duration_seconds (calculated from timestamps)
+    - organization_id (from JWT, not client)
+    - user_id (from JWT, not client)
+
+    Authentication: JWT token required (Bearer token)
+    Organization: Automatically extracted from authenticated user
+    Rate Limiting: 20 requests per minute per IP
+    """
+    results = []
+    for idle_in in batch_in.sessions:
+        result = create_idle_session(db=db, idle_in=idle_in, user=current_user)
+        results.append(result)
+    return results
+
+
+@router.post(
+    "/events/batch",
+    response_model=ActivityEventBatchResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit("20/minute")
+def record_activity_event_batch(
+    request: Request,
+    batch_in: ActivityEventBatchCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Records multiple activity events in a batch.
+
+    Called by browser extension for batch synchronization.
+    Allows uploading up to 50 activity events in a single request.
+
+    Browser extension provides raw event data for each event:
+    - event_id: Unique UUID for idempotency
+    - event_type: Type of event (TAB_CREATED, TAB_ACTIVATED, etc.)
+    - browser_name: Browser name
+    - tab_id, window_id: Context information
+    - website_url, website_domain, page_title: Website context
+    - previous_url, previous_domain: Navigation context
+    - timestamp: Event timestamp
+    - metadata: Additional event data (JSON)
+
+    Backend determines for each event:
+    - organization_id (from JWT, not client)
+    - user_id (from JWT, not client)
+
+    The batch is processed inside a single database transaction.
+    Duplicate event_ids are ignored gracefully.
+    Partial success is supported - only failed events are retried.
+
+    Response includes statistics:
+    - inserted: Number of events successfully inserted
+    - duplicates: Number of duplicate event_ids ignored
+    - failed: Number of events that failed to insert
+
+    Authentication: JWT token required (Bearer token)
+    Organization: Automatically extracted from authenticated user
+    Rate Limiting: 20 requests per minute per IP
+    """
+    result = create_activity_events_batch(db=db, batch_in=batch_in, user=current_user)
+    return result
 
 
 @router.get("/idle/my", response_model=list[IdleSessionResponse])
