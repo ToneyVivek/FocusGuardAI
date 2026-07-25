@@ -60,11 +60,9 @@ export function handleWindowFocusChanged(windowId: number): void {
   logger.info('[WINDOW LISTENER] About to call addActivity for window_focus_changed');
   activityQueueService.addActivity(activity);
   logger.info(`Window focus changed - Window ID: ${windowId}, Focused: true`);
-  
-  // Trigger sync when browser regains focus
-  syncService.triggerSync().catch(error => {
-    logger.warn('[WINDOW LISTENER] Failed to trigger sync on window focus', error);
-  });
+
+  // Trigger debounced sync when browser regains focus
+  syncService.triggerSync();
 }
 
 /**

@@ -46,7 +46,7 @@ function initializeBackground(): void {
       logger.error('[BACKGROUND] Failed to cleanup overlapping idle sessions', error);
     });
 
-    // Start periodic sync
+    // Start periodic sync using Chrome Alarms API
     syncService.startPeriodicSync();
 
     // Start idle detection (may fail if chrome.idle is not available)
@@ -64,12 +64,31 @@ function initializeBackground(): void {
   }
 }
 
-// Handle browser shutdown
-chrome.runtime.onSuspend.addListener(async () => {
-  logger.info('Browser shutdown detected, ending all sessions');
-  await handleBrowserShutdown();
-  await sessionService.endAllSessions();
-  await idleService.endAllIdleSessions();
+// Handle alarm events for periodic sync
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'focusguard-sync-alarm') {
+    logger.info('[BACKGROUND] Sync alarm triggered');
+    syncService.checkAndSync().catch(error => {
+      logger.error('[BACKGROUND] Sync alarm handler failed', error);
+    });
+  }
+});
+
+// Handle browser shutdown (best-effort only)
+// Chrome MV3 does not guarantee async operations complete before termination
+// All sessions are already persisted to chrome.storage.local as they end, so data is safe
+chrome.runtime.onSuspend.addListener(() => {
+  logger.info('Browser shutdown detected, attempting to end sessions (best-effort)');
+  // Fire and forget - don't await since Chrome may terminate before completion
+  handleBrowserShutdown().catch(error => {
+    logger.error('[BACKGROUND] Failed to handle browser shutdown', error);
+  });
+  sessionService.endAllSessions().catch(error => {
+    logger.error('[BACKGROUND] Failed to end sessions on shutdown', error);
+  });
+  idleService.endAllIdleSessions().catch(error => {
+    logger.error('[BACKGROUND] Failed to end idle sessions on shutdown', error);
+  });
 });
 
 // Initialize on service worker start

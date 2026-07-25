@@ -1,6 +1,7 @@
 /**
  * Authentication Service for FocusGuard Extension
  * Handles all authentication operations using the API client
+ * with offline-first behavior to preserve session during network failures
  */
 
 import { apiClient } from '../api/client';
@@ -15,6 +16,52 @@ import type { LoginResponse, RefreshResponse, User } from '../types/auth';
  * Authentication service
  */
 class AuthService {
+  /**
+   * Determine if an error is a network failure (vs authentication failure)
+   * Network failures should preserve session, auth failures should clear it
+   */
+  private isNetworkError(error: any): boolean {
+    // TypeError with "Failed to fetch" indicates network failure
+    if (error instanceof TypeError && error.message === 'Failed to fetch') {
+      return true;
+    }
+
+    // No response object typically indicates network failure
+    if (!error.response && error.message) {
+      const message = error.message.toLowerCase();
+      if (message.includes('network') ||
+          message.includes('connection') ||
+          message.includes('timeout') ||
+          message.includes('fetch')) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Determine if an error is an authentication failure
+   * Auth failures should clear the session
+   */
+  private isAuthError(error: any): boolean {
+    // HTTP 401 Unauthorized
+    if (error.status === 401 || error.response?.status === 401) {
+      return true;
+    }
+
+    // HTTP 403 Forbidden
+    if (error.status === 403 || error.response?.status === 403) {
+      return true;
+    }
+
+    // ApiError with auth-related status
+    if (error instanceof ApiError && (error.statusCode === 401 || error.statusCode === 403)) {
+      return true;
+    }
+
+    return false;
+  }
   /**
    * Login with email and password
    * Uses OAuth2PasswordRequestForm (form-urlencoded)
@@ -120,7 +167,7 @@ class AuthService {
   async refresh(): Promise<string> {
     try {
       const refreshToken = await tokenService.getRefreshToken();
-      
+
       if (!refreshToken) {
         throw new AuthError('No refresh token available', 'refresh');
       }
@@ -143,6 +190,21 @@ class AuthService {
       return response.data.access_token;
     } catch (error) {
       logger.error('Token refresh failed', error);
+
+      // Preserve session on network errors
+      if (this.isNetworkError(error)) {
+        logger.warn('[AUTH] Network unavailable during token refresh - keeping existing session');
+        throw new AuthError('Network unavailable during token refresh', 'network');
+      }
+
+      // Clear session on authentication errors
+      if (this.isAuthError(error)) {
+        logger.warn('[AUTH] Authentication invalid during token refresh - clearing session');
+        await this.clearSession();
+        throw new AuthError('Token refresh failed - authentication invalid', 'refresh');
+      }
+
+      // Clear session on other errors
       await this.clearSession();
       throw new AuthError('Token refresh failed', 'refresh');
     }
@@ -193,11 +255,12 @@ class AuthService {
   /**
    * Restore session from storage
    * Fetches fresh user data via /auth/me after obtaining valid access token
+   * Preserves session on network errors to enable offline-first behavior
    */
   async restoreSession(): Promise<User | null> {
     try {
       const isAuth = await this.isAuthenticated();
-      
+
       if (!isAuth) {
         // Try to refresh if expired but refresh token exists
         const hasRefreshToken = await tokenService.getRefreshToken();
@@ -222,10 +285,30 @@ class AuthService {
       const userResponse = await apiClient.get<User>(API_ENDPOINTS.ME);
       const user = userResponse.data;
       await storageService.set(STORAGE_KEYS.USER_DATA, user);
-      
+
       return user;
     } catch (error) {
       logger.error('Failed to restore session', error);
+
+      // Preserve session on network errors - return cached user data
+      if (this.isNetworkError(error)) {
+        logger.warn('[AUTH] Network unavailable during session restore - keeping existing session');
+        const cachedUser = await this.getCurrentUser();
+        if (cachedUser) {
+          logger.info('[AUTH] Returning cached user data for offline mode');
+          return cachedUser;
+        }
+        return null;
+      }
+
+      // Clear session on authentication errors
+      if (this.isAuthError(error)) {
+        logger.warn('[AUTH] Authentication invalid during session restore - clearing session');
+        await this.clearSession();
+        return null;
+      }
+
+      // Clear session on other errors
       await this.clearSession();
       return null;
     }

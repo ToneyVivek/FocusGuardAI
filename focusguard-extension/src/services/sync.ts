@@ -1,6 +1,7 @@
 /**
  * Sync Service for FocusGuard Extension
  * Handles batch synchronization of completed sessions to backend
+ * with debounced batching and intelligent retry logic
  */
 
 import { apiClient } from '../api/client';
@@ -15,38 +16,129 @@ import type { WebsiteSession } from '../types/session';
 import type { IdleSession } from '../types/idle';
 
 /**
+ * Sync Service Configuration
+ */
+const DEBOUNCE_DELAY_MS = 5000; // 5 seconds
+const RETRY_DELAYS_MS = [10000, 20000, 40000, 80000, 300000]; // 10s, 20s, 40s, 80s, 5min
+const SYNC_ALARM_NAME = 'focusguard-sync-alarm';
+
+/**
  * Sync Service
  */
 class SyncService {
   private isSyncing: boolean = false;
-  private syncTimer: number | null = null;
+  private pendingSync: boolean = false;
+  private debounceTimer: number | null = null;
+  private retryCounter: number = 0;
+  private retryTimer: number | null = null;
 
   /**
-   * Start periodic synchronization
+   * Start periodic synchronization using Chrome Alarms API
+   * Creates a repeating alarm for MV3 compliance
    */
   startPeriodicSync(): void {
-    if (this.syncTimer !== null) {
-      logger.info('[SYNC SERVICE] Periodic sync already running');
-      return;
-    }
+    // Check if alarm already exists to avoid duplicates
+    chrome.alarms.get(SYNC_ALARM_NAME, (alarm) => {
+      if (chrome.runtime.lastError) {
+        logger.error('[SYNC SERVICE] Failed to check alarm existence', chrome.runtime.lastError);
+        return;
+      }
 
-    logger.info('[SYNC SERVICE] Starting periodic sync');
-    this.syncTimer = setInterval(() => {
-      this.syncSessions().catch(error => {
-        logger.error('[SYNC SERVICE] Periodic sync failed', error);
+      if (alarm) {
+        logger.info('[SYNC SERVICE] Periodic sync alarm already exists');
+        return;
+      }
+
+      // Create repeating alarm (1-minute interval)
+      chrome.alarms.create(SYNC_ALARM_NAME, {
+        periodInMinutes: 1, // 1 minute = 60 seconds
+      }, () => {
+        if (chrome.runtime.lastError) {
+          logger.error('[SYNC SERVICE] Failed to create periodic sync alarm', chrome.runtime.lastError);
+        } else {
+          logger.info('[SYNC SERVICE] Periodic sync alarm created (1-minute interval)');
+        }
       });
-    }, SYNC_CONFIG.INTERVAL_MS);
+    });
   }
 
   /**
    * Stop periodic synchronization
    */
   stopPeriodicSync(): void {
-    if (this.syncTimer !== null) {
-      clearInterval(this.syncTimer);
-      this.syncTimer = null;
-      logger.info('[SYNC SERVICE] Periodic sync stopped');
+    // Clear alarm
+    chrome.alarms.clear(SYNC_ALARM_NAME, (wasCleared) => {
+      if (chrome.runtime.lastError) {
+        logger.error('[SYNC SERVICE] Failed to clear periodic sync alarm', chrome.runtime.lastError);
+      } else if (wasCleared) {
+        logger.info('[SYNC SERVICE] Periodic sync alarm cleared');
+      } else {
+        logger.info('[SYNC SERVICE] Periodic sync alarm was not found or already cleared');
+      }
+    });
+
+    // Clear debounce timer
+    if (this.debounceTimer !== null) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+      logger.info('[SYNC SERVICE] Debounce timer cleared');
     }
+
+    // Clear retry timer
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+      logger.info('[SYNC SERVICE] Retry timer cleared');
+    }
+  }
+
+  /**
+   * Check if queues have pending items and sync if needed
+   * Used by periodic sync to avoid unnecessary syncs
+   * Public method to allow chrome.alarms.onAlarm listener to call it
+   */
+  async checkAndSync(): Promise<void> {
+    try {
+      const pendingSessions = await sessionQueueService.getPendingSessions();
+      const pendingIdle = await idleQueueService.getPendingSessions();
+      const pendingActivities = await activityQueueService.getPendingActivities();
+
+      const totalPending = pendingSessions.length + pendingIdle.length + pendingActivities.length;
+
+      if (totalPending === 0) {
+        logger.debug('[SYNC SERVICE] No pending items, skipping periodic sync');
+        return;
+      }
+
+      logger.info(`[SYNC SERVICE] Periodic sync triggered - Pending: ${totalPending} (sessions: ${pendingSessions.length}, idle: ${pendingIdle.length}, activities: ${pendingActivities.length})`);
+      await this.syncSessions();
+    } catch (error) {
+      logger.error('[SYNC SERVICE] Periodic sync check failed', error);
+    }
+  }
+
+  /**
+   * Trigger debounced sync
+   * Resets debounce timer on each call
+   * This method is synchronous and handles errors internally
+   */
+  triggerSync(): void {
+    // Clear existing debounce timer
+    if (this.debounceTimer !== null) {
+      clearTimeout(this.debounceTimer);
+      logger.debug('[SYNC SERVICE] Debounce timer reset');
+    }
+
+    // Set new debounce timer
+    this.debounceTimer = setTimeout(() => {
+      logger.info('[SYNC SERVICE] Debounced sync triggered');
+      this.syncSessions().catch(error => {
+        logger.error('[SYNC SERVICE] Debounced sync failed', error);
+      });
+      this.debounceTimer = null;
+    }, DEBOUNCE_DELAY_MS);
+
+    logger.debug('[SYNC SERVICE] Debounced sync scheduled in 5s');
   }
 
   /**
@@ -55,12 +147,14 @@ class SyncService {
   async syncSessions(): Promise<void> {
     // Prevent concurrent syncs
     if (this.isSyncing) {
-      logger.info('[SYNC SERVICE] Sync already in progress, skipping');
+      logger.info('[SYNC SERVICE] Sync already in progress, marking as pending');
+      this.pendingSync = true;
       return;
     }
 
     try {
       this.isSyncing = true;
+      this.pendingSync = false;
       logger.info('[SYNC SERVICE] Sync started');
 
       // Check authentication status
@@ -71,11 +165,13 @@ class SyncService {
       }
 
       // Ensure API client has valid token
-      const accessToken = await authService.restoreSession();
-      if (!accessToken) {
+      const user = await authService.restoreSession();
+      if (!user) {
         logger.info('[SYNC SERVICE] Failed to restore session, skipping sync');
         return;
       }
+
+      logger.info(`[SYNC SERVICE] Session restored - User ID: ${user.id}, Organization ID: ${user.organization?.id}`);
 
       // Sync browser sessions
       await this.syncBrowserSessions();
@@ -86,12 +182,94 @@ class SyncService {
       // Sync activity events
       await this.syncActivities();
 
-      logger.info('[SYNC SERVICE] Sync completed');
-    } catch (error) {
+      // Reset retry counter on successful sync
+      this.retryCounter = 0;
+      logger.info('[SYNC SERVICE] Sync completed successfully');
+    } catch (error: any) {
       logger.error('[SYNC SERVICE] Sync failed', error);
+
+      // Handle retry logic for rate limiting or temporary failures
+      if (this.shouldRetry(error)) {
+        this.scheduleRetry(error);
+      }
     } finally {
       this.isSyncing = false;
+
+      // Check if another sync was requested during this sync
+      if (this.pendingSync) {
+        logger.info('[SYNC SERVICE] Pending sync detected, triggering immediately');
+        this.pendingSync = false;
+        this.syncSessions().catch(error => {
+          logger.error('[SYNC SERVICE] Pending sync failed', error);
+        });
+      }
     }
+  }
+
+  /**
+   * Determine if error should trigger retry
+   */
+  private shouldRetry(error: any): boolean {
+    // Retry on HTTP 429 (Too Many Requests)
+    if (error?.status === 429 || error?.response?.status === 429) {
+      return true;
+    }
+
+    // Retry on network errors (no response)
+    if (!error?.response && error?.message?.includes('network')) {
+      return true;
+    }
+
+    // Retry on 5xx server errors
+    if (error?.status >= 500 || error?.response?.status >= 500) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Schedule retry with exponential backoff or Retry-After header
+   */
+  private scheduleRetry(error: any): void {
+    let delayMs: number;
+
+    // Check for Retry-After header
+    const retryAfter = error?.response?.headers?.['retry-after'];
+    if (retryAfter) {
+      // Retry-After can be seconds or HTTP date
+      const retryAfterSeconds = parseInt(retryAfter, 10);
+      if (!isNaN(retryAfterSeconds)) {
+        delayMs = retryAfterSeconds * 1000;
+        logger.info(`[SYNC SERVICE] Retry-After header honored: ${retryAfterSeconds}s`);
+      } else {
+        // If it's a date, calculate delay from now
+        const retryAfterDate = new Date(retryAfter);
+        const now = new Date();
+        delayMs = Math.max(0, retryAfterDate.getTime() - now.getTime());
+        logger.info(`[SYNC SERVICE] Retry-After date honored: ${retryAfter}`);
+      }
+    } else {
+      // Use exponential backoff
+      const retryIndex = Math.min(this.retryCounter, RETRY_DELAYS_MS.length - 1);
+      delayMs = RETRY_DELAYS_MS[retryIndex];
+      this.retryCounter++;
+      logger.info(`[SYNC SERVICE] Retry scheduled in ${delayMs / 1000}s (attempt ${this.retryCounter})`);
+    }
+
+    // Clear existing retry timer
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer);
+    }
+
+    // Schedule retry
+    this.retryTimer = setTimeout(() => {
+      logger.info('[SYNC SERVICE] Retry executing');
+      this.syncSessions().catch(error => {
+        logger.error('[SYNC SERVICE] Retry failed', error);
+      });
+      this.retryTimer = null;
+    }, delayMs);
   }
 
   /**
@@ -567,14 +745,6 @@ class SyncService {
       idle_start_time: new Date(session.startTime).toISOString(),
       idle_end_time: new Date(session.endTime).toISOString(),
     };
-  }
-
-  /**
-   * Trigger sync immediately (called after session completion)
-   */
-  async triggerSync(): Promise<void> {
-    logger.info('[SYNC SERVICE] Immediate sync triggered');
-    await this.syncSessions();
   }
 
   /**

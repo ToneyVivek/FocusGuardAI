@@ -18,14 +18,21 @@ const BLOCKED_PATTERNS = [
   'opera://',
   'brave://',
   'vivaldi://',
+  'data:',
+  'javascript:',
 ];
 
 /**
+ * Supported protocols for tracking
+ */
+const SUPPORTED_PROTOCOLS = ['http://', 'https://'];
+
+/**
  * Check if a URL should be tracked
- * Returns false for internal browser URLs
+ * Returns false for internal browser URLs, empty URLs, and unsupported protocols
  */
 export function shouldTrackUrl(url: string | null | undefined): boolean {
-  if (!url) {
+  if (!url || url.trim() === '') {
     return false;
   }
 
@@ -38,7 +45,12 @@ export function shouldTrackUrl(url: string | null | undefined): boolean {
     }
   }
 
-  return true;
+  // Check if URL starts with supported protocol
+  const hasSupportedProtocol = SUPPORTED_PROTOCOLS.some(protocol =>
+    lowerUrl.startsWith(protocol.toLowerCase())
+  );
+
+  return hasSupportedProtocol;
 }
 
 /**

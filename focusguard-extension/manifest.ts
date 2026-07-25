@@ -17,7 +17,7 @@ const manifest: ManifestV3Export = {
 
   options_page: "options.html",
 
-  permissions: ["storage", "tabs","idle"],
+  permissions: ["storage", "tabs", "idle", "alarms"],
 
   host_permissions: ["http://localhost:8000/*"],
 };

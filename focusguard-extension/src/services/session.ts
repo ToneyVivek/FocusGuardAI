@@ -10,6 +10,8 @@ import { storageService } from './storage';
 import { syncService } from './sync';
 import { STORAGE_KEYS } from '../constants';
 import { extractUrlParts } from '../utils/url';
+import { shouldTrackUrl } from '../utils/urlFilter';
+import { SessionLifecycleState } from '../types/session';
 import type { WebsiteSession, ActiveSessionState } from '../types/session';
 import type { User } from '../types/auth';
 
@@ -21,16 +23,19 @@ class SessionService {
 
   /**
    * Get user context from storage
+   * Uses cached user data for offline-first behavior
    */
   private async getUserContext(): Promise<{ userId: number | null; organizationId: number | null }> {
     try {
       const user = await storageService.get<User>(STORAGE_KEYS.USER_DATA);
       if (user) {
+        logger.info(`[SESSION SERVICE] Using cached user context - User ID: ${user.id}, Organization ID: ${user.organization?.id}`);
         return {
           userId: user.id,
           organizationId: user.organization?.id ?? null,
         };
       }
+      logger.warn('[SESSION SERVICE] No cached user data available, using null values');
       return { userId: null, organizationId: null };
     } catch (error) {
       logger.warn('[SESSION SERVICE] Failed to get user context, using null values', error);
@@ -69,9 +74,9 @@ class SessionService {
     url: string | null,
     title: string | null
   ): Promise<void> {
-    // Skip non-web URLs (chrome://, edge://, about:blank, etc.)
-    if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
-      logger.info(`[SESSION SERVICE] Ignoring non-web URL: ${url}`);
+    // Validate URL before creating session
+    if (!shouldTrackUrl(url)) {
+      logger.info(`[SESSION SERVICE] Ignoring invalid URL: ${url}`);
       return;
     }
 
@@ -97,6 +102,7 @@ class SessionService {
         startTime: Date.now(),
         userId,
         organizationId,
+        lifecycleState: SessionLifecycleState.ACTIVE,
       };
 
       logger.info(`[SESSION SERVICE] Session started - Session ID: ${this.currentSession.sessionId}, Tab ID: ${tabId}, URL: ${url}, Category: ${category}`);
@@ -107,33 +113,50 @@ class SessionService {
   }
 
   /**
-   * End the current session
+   * End the current session (idempotent)
+   * Uses session lifecycle state to prevent duplicate termination
+   * Clears session synchronously before async work to eliminate race window
    */
   async endSession(reason: string): Promise<void> {
+    // Return early if no active session
     if (!this.currentSession) {
-      logger.info('[SESSION SERVICE] No active session to end');
+      logger.info(`[SESSION SERVICE] No active session to end (reason: ${reason})`);
       return;
     }
+
+    // Check session lifecycle state - prevent duplicate termination
+    if (this.currentSession.lifecycleState !== SessionLifecycleState.ACTIVE) {
+      logger.info(`[SESSION SERVICE] Session already ${this.currentSession.lifecycleState}, ignoring duplicate request (reason: ${reason})`);
+      return;
+    }
+
+    // Transition to ENDING state synchronously
+    this.currentSession.lifecycleState = SessionLifecycleState.ENDING;
+
+    // Capture session data and clear currentSession synchronously
+    // This eliminates the race window where concurrent events can terminate the same session
+    const sessionToTerminate = this.currentSession;
+    this.currentSession = null;
 
     try {
       const endTime = Date.now();
       const { durationMs, durationSeconds, durationMinutes } = this.calculateDuration(
-        this.currentSession.startTime,
+        sessionToTerminate.startTime,
         endTime
       );
 
       const completedSession: WebsiteSession = {
-        sessionId: this.currentSession.sessionId,
-        userId: this.currentSession.userId,
-        organizationId: this.currentSession.organizationId,
-        tabId: this.currentSession.tabId,
-        windowId: this.currentSession.windowId,
-        url: this.currentSession.url,
-        hostname: this.currentSession.hostname,
-        domain: this.currentSession.domain,
-        title: this.currentSession.title,
-        category: this.currentSession.category,
-        startTime: this.currentSession.startTime,
+        sessionId: sessionToTerminate.sessionId,
+        userId: sessionToTerminate.userId,
+        organizationId: sessionToTerminate.organizationId,
+        tabId: sessionToTerminate.tabId,
+        windowId: sessionToTerminate.windowId,
+        url: sessionToTerminate.url,
+        hostname: sessionToTerminate.hostname,
+        domain: sessionToTerminate.domain,
+        title: sessionToTerminate.title,
+        category: sessionToTerminate.category,
+        startTime: sessionToTerminate.startTime,
         endTime,
         durationMs,
         durationSeconds,
@@ -141,20 +164,19 @@ class SessionService {
         uploaded: false,
       };
 
-      logger.info(`[SESSION SERVICE] Session ended - Session ID: ${this.currentSession.sessionId}, Reason: ${reason}, Duration: ${durationSeconds}s (${durationMinutes}m)`);
+      logger.info(`[SESSION SERVICE] Session ended - Session ID: ${sessionToTerminate.sessionId}, Reason: ${reason}, Duration: ${durationSeconds}s (${durationMinutes}m)`);
 
       // Save completed session to queue
       await sessionQueueService.addSession(completedSession);
 
-      // Trigger sync after session completion
-      syncService.triggerSync().catch(error => {
-        logger.warn('[SESSION SERVICE] Failed to trigger sync after session completion', error);
-      });
+      // Trigger debounced sync after session completion
+      syncService.triggerSync();
 
-      // Clear current session
-      this.currentSession = null;
+      // Transition to ENDED state (for completeness, though session is already detached)
+      sessionToTerminate.lifecycleState = SessionLifecycleState.ENDED;
     } catch (error) {
       logger.error('[SESSION SERVICE] Failed to end session', error);
+      // Even on error, session remains detached (currentSession is already null)
       throw error;
     }
   }

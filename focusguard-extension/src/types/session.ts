@@ -4,6 +4,18 @@
  */
 
 /**
+ * Session lifecycle states
+ * Each session transitions through these states exactly once
+ */
+export const SessionLifecycleState = {
+  ACTIVE: 'ACTIVE',       // Session is currently tracking user activity
+  ENDING: 'ENDING',       // Session is being terminated (transition state)
+  ENDED: 'ENDED',         // Session has been terminated and queued
+} as const;
+
+export type SessionLifecycleState = typeof SessionLifecycleState[keyof typeof SessionLifecycleState];
+
+/**
  * Website category enumeration
  */
 export type WebsiteCategory =
@@ -65,4 +77,5 @@ export interface ActiveSessionState {
   startTime: number;
   userId: number | null;
   organizationId: number | null;
+  lifecycleState: SessionLifecycleState; // Session lifecycle state
 }

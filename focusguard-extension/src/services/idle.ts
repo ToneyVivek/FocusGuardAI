@@ -27,16 +27,19 @@ class IdleService {
 
   /**
    * Get user context from storage
+   * Uses cached user data for offline-first behavior
    */
   private async getUserContext(): Promise<{ userId: number | null; organizationId: number | null }> {
     try {
       const user = await storageService.get<User>(STORAGE_KEYS.USER_DATA);
       if (user) {
+        logger.info(`[IDLE SERVICE] Using cached user context - User ID: ${user.id}, Organization ID: ${user.organization?.id}`);
         return {
           userId: user.id,
           organizationId: user.organization?.id ?? null,
         };
       }
+      logger.warn('[IDLE SERVICE] No cached user data available, using null values');
       return { userId: null, organizationId: null };
     } catch (error) {
       logger.warn('[IDLE SERVICE] Failed to get user context, using null values', error);
@@ -159,10 +162,8 @@ class IdleService {
       // Save completed idle session to queue
       await idleQueueService.addIdleSession(completedIdleSession);
 
-      // Trigger sync after idle session completion
-      syncService.triggerSync().catch(error => {
-        logger.warn('[IDLE SERVICE] Failed to trigger sync after idle session completion', error);
-      });
+      // Trigger debounced sync after idle session completion
+      syncService.triggerSync();
 
       // Clear current idle state
       this.currentState = {

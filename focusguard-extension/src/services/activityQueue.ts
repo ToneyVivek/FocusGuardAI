@@ -19,19 +19,45 @@ const ACTIVITY_QUEUE_KEY = 'activity_queue';
  * Activity Queue Service
  */
 class ActivityQueueService {
+  private writeLock: Promise<void> = Promise.resolve();
+
+  /**
+   * Execute a queue write operation with a lock to prevent concurrent writes
+   */
+  private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+    // Wait for any existing write to complete
+    await this.writeLock;
+
+    // Create a new lock for this operation
+    let resolveLock: () => void;
+    this.writeLock = new Promise(resolve => {
+      resolveLock = resolve;
+    });
+
+    try {
+      // Execute the operation
+      return await operation();
+    } finally {
+      // Release the lock
+      resolveLock!();
+    }
+  }
   /**
    * Get user context from storage
    * Returns userId and organizationId if authenticated, null otherwise
+   * Uses cached user data for offline-first behavior
    */
   private async getUserContext(): Promise<{ userId: number | null; organizationId: number | null }> {
     try {
       const user = await storageService.get<User>(STORAGE_KEYS.USER_DATA);
       if (user) {
+        logger.info(`[ACTIVITY QUEUE] Using cached user context - User ID: ${user.id}, Organization ID: ${user.organization?.id}`);
         return {
           userId: user.id,
           organizationId: user.organization?.id ?? null,
         };
       }
+      logger.warn('[ACTIVITY QUEUE] No cached user data available, using null values');
       return { userId: null, organizationId: null };
     } catch (error) {
       logger.warn('[ACTIVITY QUEUE] Failed to get user context, using null values', error);
@@ -50,51 +76,53 @@ class ActivityQueueService {
    * Add activity to queue
    */
   async addActivity(activity: TabActivity | WindowActivity | LifecycleActivity): Promise<void> {
-    try {
-      logger.info(`[ACTIVITY QUEUE] Before addActivity - Event type: ${activity.eventType}, Storage key: ${ACTIVITY_QUEUE_KEY}`);
-      
-      // Get user context
-      const { userId, organizationId } = await this.getUserContext();
-      logger.info(`[ACTIVITY QUEUE] User context - User ID: ${userId}, Organization ID: ${organizationId}`);
-      
-      // Attach user context and ISO timestamp to activity
-      activity.userId = userId;
-      activity.organizationId = organizationId;
-      activity.timestampIso = this.generateIsoTimestamp(activity.timestamp);
-      
-      const queue = await this.getQueue();
-      logger.info(`[ACTIVITY QUEUE] Current queue size before add: ${queue.length}`);
-      
-      const queueItem: ActivityQueueItem = {
-        id: this.generateId(),
-        timestamp: Date.now(),
-        eventType: activity.eventType,
-        data: activity,
-        uploaded: false,
-      };
+    return this.withWriteLock(async () => {
+      try {
+        logger.info(`[ACTIVITY QUEUE] Before addActivity - Event type: ${activity.eventType}, Storage key: ${ACTIVITY_QUEUE_KEY}`);
 
-      // Add to beginning of queue (newest first)
-      queue.unshift(queueItem);
-      logger.info(`[ACTIVITY QUEUE] Queue size after unshift: ${queue.length}`);
+        // Get user context
+        const { userId, organizationId } = await this.getUserContext();
+        logger.info(`[ACTIVITY QUEUE] User context - User ID: ${userId}, Organization ID: ${organizationId}`);
 
-      // Enforce maximum queue size
-      if (queue.length > QUEUE_CONFIG.MAX_ACTIVITY_SIZE) {
-        queue.splice(QUEUE_CONFIG.MAX_ACTIVITY_SIZE);
-        logger.warn(`Activity queue truncated to ${QUEUE_CONFIG.MAX_ACTIVITY_SIZE} items`);
+        // Attach user context and ISO timestamp to activity
+        activity.userId = userId;
+        activity.organizationId = organizationId;
+        activity.timestampIso = this.generateIsoTimestamp(activity.timestamp);
+
+        const queue = await this.getQueue();
+        logger.info(`[ACTIVITY QUEUE] Current queue size before add: ${queue.length}`);
+
+        const queueItem: ActivityQueueItem = {
+          id: this.generateId(),
+          timestamp: Date.now(),
+          eventType: activity.eventType,
+          data: activity,
+          uploaded: false,
+        };
+
+        // Add to beginning of queue (newest first)
+        queue.unshift(queueItem);
+        logger.info(`[ACTIVITY QUEUE] Queue size after unshift: ${queue.length}`);
+
+        // Enforce maximum queue size
+        if (queue.length > QUEUE_CONFIG.MAX_ACTIVITY_SIZE) {
+          queue.splice(QUEUE_CONFIG.MAX_ACTIVITY_SIZE);
+          logger.warn(`Activity queue truncated to ${QUEUE_CONFIG.MAX_ACTIVITY_SIZE} items`);
+        }
+
+        logger.info(`[ACTIVITY QUEUE] Before storageService.set - Key: ${ACTIVITY_QUEUE_KEY}, Queue size: ${queue.length}`);
+        await storageService.set(ACTIVITY_QUEUE_KEY, queue);
+        logger.info(`[ACTIVITY QUEUE] After storageService.set - SUCCESS - Event type: ${activity.eventType}`);
+
+        // Verify the write
+        const verifyQueue = await this.getQueue();
+        logger.info(`[ACTIVITY QUEUE] Verification - Queue size after write: ${verifyQueue.length}`);
+      } catch (error) {
+        logger.error('[ACTIVITY QUEUE] FAILED to add activity to queue', error);
+        logger.error(`[ACTIVITY QUEUE] Error stack: ${error instanceof Error ? error.stack : String(error)}`);
+        throw error;
       }
-
-      logger.info(`[ACTIVITY QUEUE] Before storageService.set - Key: ${ACTIVITY_QUEUE_KEY}, Queue size: ${queue.length}`);
-      await storageService.set(ACTIVITY_QUEUE_KEY, queue);
-      logger.info(`[ACTIVITY QUEUE] After storageService.set - SUCCESS - Event type: ${activity.eventType}`);
-      
-      // Verify the write
-      const verifyQueue = await this.getQueue();
-      logger.info(`[ACTIVITY QUEUE] Verification - Queue size after write: ${verifyQueue.length}`);
-    } catch (error) {
-      logger.error('[ACTIVITY QUEUE] FAILED to add activity to queue', error);
-      logger.error(`[ACTIVITY QUEUE] Error stack: ${error instanceof Error ? error.stack : String(error)}`);
-      throw error;
-    }
+    });
   }
 
   /**
@@ -127,48 +155,54 @@ class ActivityQueueService {
    * Mark activity as uploaded
    */
   async markAsUploaded(itemId: string): Promise<void> {
-    try {
-      const queue = await this.getQueue();
-      const item = queue.find(item => item.id === itemId);
-      
-      if (item) {
-        item.uploaded = true;
-        await storageService.set(ACTIVITY_QUEUE_KEY, queue);
-        logger.debug(`Activity marked as uploaded: ${itemId}`);
+    return this.withWriteLock(async () => {
+      try {
+        const queue = await this.getQueue();
+        const item = queue.find(item => item.id === itemId);
+
+        if (item) {
+          item.uploaded = true;
+          await storageService.set(ACTIVITY_QUEUE_KEY, queue);
+          logger.debug(`Activity marked as uploaded: ${itemId}`);
+        }
+      } catch (error) {
+        logger.error('Failed to mark activity as uploaded', error);
+        throw error;
       }
-    } catch (error) {
-      logger.error('Failed to mark activity as uploaded', error);
-      throw error;
-    }
+    });
   }
 
   /**
    * Remove uploaded activities from queue
    */
   async removeUploadedActivities(): Promise<void> {
-    try {
-      const queue = await this.getQueue();
-      const pendingQueue = queue.filter(item => !item.uploaded);
-      
-      await storageService.set(ACTIVITY_QUEUE_KEY, pendingQueue);
-      logger.debug(`Removed ${queue.length - pendingQueue.length} uploaded activities`);
-    } catch (error) {
-      logger.error('Failed to remove uploaded activities', error);
-      throw error;
-    }
+    return this.withWriteLock(async () => {
+      try {
+        const queue = await this.getQueue();
+        const pendingQueue = queue.filter(item => !item.uploaded);
+
+        await storageService.set(ACTIVITY_QUEUE_KEY, pendingQueue);
+        logger.debug(`Removed ${queue.length - pendingQueue.length} uploaded activities`);
+      } catch (error) {
+        logger.error('Failed to remove uploaded activities', error);
+        throw error;
+      }
+    });
   }
 
   /**
    * Clear all activities from queue
    */
   async clearQueue(): Promise<void> {
-    try {
-      await storageService.remove(ACTIVITY_QUEUE_KEY);
-      logger.info('Activity queue cleared');
-    } catch (error) {
-      logger.error('Failed to clear activity queue', error);
-      throw error;
-    }
+    return this.withWriteLock(async () => {
+      try {
+        await storageService.remove(ACTIVITY_QUEUE_KEY);
+        logger.info('Activity queue cleared');
+      } catch (error) {
+        logger.error('Failed to clear activity queue', error);
+        throw error;
+      }
+    });
   }
 
   /**
