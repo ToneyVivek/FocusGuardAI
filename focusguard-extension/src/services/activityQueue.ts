@@ -51,7 +51,6 @@ class ActivityQueueService {
     try {
       const user = await storageService.get<User>(STORAGE_KEYS.USER_DATA);
       if (user) {
-        logger.info(`[ACTIVITY QUEUE] Using cached user context - User ID: ${user.id}, Organization ID: ${user.organization?.id}`);
         return {
           userId: user.id,
           organizationId: user.organization?.id ?? null,
@@ -78,11 +77,8 @@ class ActivityQueueService {
   async addActivity(activity: TabActivity | WindowActivity | LifecycleActivity): Promise<void> {
     return this.withWriteLock(async () => {
       try {
-        logger.info(`[ACTIVITY QUEUE] Before addActivity - Event type: ${activity.eventType}, Storage key: ${ACTIVITY_QUEUE_KEY}`);
-
         // Get user context
         const { userId, organizationId } = await this.getUserContext();
-        logger.info(`[ACTIVITY QUEUE] User context - User ID: ${userId}, Organization ID: ${organizationId}`);
 
         // Attach user context and ISO timestamp to activity
         activity.userId = userId;
@@ -90,7 +86,6 @@ class ActivityQueueService {
         activity.timestampIso = this.generateIsoTimestamp(activity.timestamp);
 
         const queue = await this.getQueue();
-        logger.info(`[ACTIVITY QUEUE] Current queue size before add: ${queue.length}`);
 
         const queueItem: ActivityQueueItem = {
           id: this.generateId(),
@@ -102,7 +97,6 @@ class ActivityQueueService {
 
         // Add to beginning of queue (newest first)
         queue.unshift(queueItem);
-        logger.info(`[ACTIVITY QUEUE] Queue size after unshift: ${queue.length}`);
 
         // Enforce maximum queue size
         if (queue.length > QUEUE_CONFIG.MAX_ACTIVITY_SIZE) {
@@ -110,16 +104,9 @@ class ActivityQueueService {
           logger.warn(`Activity queue truncated to ${QUEUE_CONFIG.MAX_ACTIVITY_SIZE} items`);
         }
 
-        logger.info(`[ACTIVITY QUEUE] Before storageService.set - Key: ${ACTIVITY_QUEUE_KEY}, Queue size: ${queue.length}`);
         await storageService.set(ACTIVITY_QUEUE_KEY, queue);
-        logger.info(`[ACTIVITY QUEUE] After storageService.set - SUCCESS - Event type: ${activity.eventType}`);
-
-        // Verify the write
-        const verifyQueue = await this.getQueue();
-        logger.info(`[ACTIVITY QUEUE] Verification - Queue size after write: ${verifyQueue.length}`);
       } catch (error) {
         logger.error('[ACTIVITY QUEUE] FAILED to add activity to queue', error);
-        logger.error(`[ACTIVITY QUEUE] Error stack: ${error instanceof Error ? error.stack : String(error)}`);
         throw error;
       }
     });
@@ -163,7 +150,6 @@ class ActivityQueueService {
         if (item) {
           item.uploaded = true;
           await storageService.set(ACTIVITY_QUEUE_KEY, queue);
-          logger.debug(`Activity marked as uploaded: ${itemId}`);
         }
       } catch (error) {
         logger.error('Failed to mark activity as uploaded', error);
@@ -182,7 +168,6 @@ class ActivityQueueService {
         const pendingQueue = queue.filter(item => !item.uploaded);
 
         await storageService.set(ACTIVITY_QUEUE_KEY, pendingQueue);
-        logger.debug(`Removed ${queue.length - pendingQueue.length} uploaded activities`);
       } catch (error) {
         logger.error('Failed to remove uploaded activities', error);
         throw error;
@@ -197,7 +182,6 @@ class ActivityQueueService {
     return this.withWriteLock(async () => {
       try {
         await storageService.remove(ACTIVITY_QUEUE_KEY);
-        logger.info('Activity queue cleared');
       } catch (error) {
         logger.error('Failed to clear activity queue', error);
         throw error;

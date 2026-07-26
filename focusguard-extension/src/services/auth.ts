@@ -69,31 +69,17 @@ class AuthService {
    */
   async login(email: string, password: string): Promise<User> {
     try {
-      logger.info('[AUTH] Attempting login', { email, endpoint: API_ENDPOINTS.LOGIN });
-
       // Send login request as form-urlencoded (OAuth2PasswordRequestForm format)
       const formData = {
         username: email,
         password: password,
       };
 
-      logger.info('[AUTH] Sending login request', {
-        endpoint: API_ENDPOINTS.LOGIN,
-        contentType: 'form-urlencoded',
-        formData: { username: email, password: '***' },
-      });
-
       const response = await apiClient.post<LoginResponse>(
         API_ENDPOINTS.LOGIN,
         formData,
         { contentType: 'form-urlencoded' }
       );
-
-      logger.info('[AUTH] Login API response received', {
-        hasAccessToken: !!response.data.access_token,
-        hasRefreshToken: !!response.data.refresh_token,
-        tokenType: response.data.token_type,
-      });
 
       // Save tokens with 1 hour expiration (default)
       await tokenService.saveTokens({
@@ -102,31 +88,20 @@ class AuthService {
         token_type: response.data.token_type,
       });
 
-      logger.info('[AUTH] Tokens saved successfully');
-
       // Set auth token in API client
       apiClient.setAuthToken(response.data.access_token);
 
-      logger.info('[AUTH] Auth token set in API client');
-
       // Fetch user data from /auth/me
-      logger.info('[AUTH] Fetching user data from /auth/me');
       const userResponse = await apiClient.get<User>(API_ENDPOINTS.ME);
       const user = userResponse.data;
-
-      logger.info('[AUTH] User data received', { userId: user.id, email: user.email });
 
       // Save user data
       await storageService.set(STORAGE_KEYS.USER_DATA, user);
 
-      logger.info('[AUTH] User data saved to storage', { userId: user.id });
-      logger.info('Login successful', { userId: user.id });
+      logger.info('[AUTH] Login successful');
       return user;
     } catch (error) {
-      logger.error('[AUTH] Login failed', {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
+      logger.error('[AUTH] Login failed', error);
       if (error instanceof ApiError) {
         throw new AuthError(error.message, 'login');
       }
@@ -146,15 +121,16 @@ class AuthService {
           const refreshToken = await tokenService.getRefreshToken();
           const requestBody = refreshToken ? { refresh_token: refreshToken } : {};
           await apiClient.post(API_ENDPOINTS.LOGOUT, requestBody);
-          logger.info('Logout successful');
         } catch (error) {
           // Continue with logout even if API call fails
-          logger.warn('Logout API call failed, clearing local session', error);
+          logger.warn('[AUTH] Logout API call failed, clearing local session', error);
         }
       }
 
       // Clear tokens and user data
       await this.clearSession();
+
+      logger.info('[AUTH] Logged out');
     } catch (error) {
       logger.error('Logout failed', error);
       throw new AuthError('Logout failed', 'logout');
@@ -186,7 +162,6 @@ class AuthService {
       // Update auth token in API client
       apiClient.setAuthToken(response.data.access_token);
 
-      logger.info('Token refresh successful');
       return response.data.access_token;
     } catch (error) {
       logger.error('Token refresh failed', error);
@@ -245,7 +220,6 @@ class AuthService {
       await tokenService.removeTokens();
       await storageService.remove(STORAGE_KEYS.USER_DATA);
       apiClient.clearAuthToken();
-      logger.info('Session cleared');
     } catch (error) {
       logger.error('Failed to clear session', error);
       throw error;
@@ -286,6 +260,7 @@ class AuthService {
       const user = userResponse.data;
       await storageService.set(STORAGE_KEYS.USER_DATA, user);
 
+      logger.info('[AUTH] Session restored');
       return user;
     } catch (error) {
       logger.error('Failed to restore session', error);
@@ -295,7 +270,6 @@ class AuthService {
         logger.warn('[AUTH] Network unavailable during session restore - keeping existing session');
         const cachedUser = await this.getCurrentUser();
         if (cachedUser) {
-          logger.info('[AUTH] Returning cached user data for offline mode');
           return cachedUser;
         }
         return null;

@@ -21,8 +21,6 @@ class StorageService {
       const prefixedKey = this.prefixKey(key);
       const result = await chrome.storage.local.get(prefixedKey);
       const value = result[prefixedKey];
-      
-      logger.debug(`Storage get: ${key}`, value);
       return (value as T) ?? null;
     } catch (error) {
       const message = `Failed to get value for key: ${key}`;
@@ -37,22 +35,11 @@ class StorageService {
   async set<T = unknown>(key: string, value: T): Promise<void> {
     try {
       const prefixedKey = this.prefixKey(key);
-      logger.info(`[STORAGE SERVICE] Before set - Key: ${key}, Prefixed key: ${prefixedKey}, Value type: ${typeof value}`);
-      
       const data: Record<string, T> = {
         [prefixedKey]: value,
       };
-      
       await chrome.storage.local.set(data);
-      logger.info(`[STORAGE SERVICE] After chrome.storage.local.set - SUCCESS - Key: ${key}, Prefixed key: ${prefixedKey}`);
-      
-      // Verify the write
-      const verify = await chrome.storage.local.get(prefixedKey);
-      logger.info(`[STORAGE SERVICE] Verification after set - Key: ${key}, Prefixed key: ${prefixedKey}, Exists: ${prefixedKey in verify}`);
-      
-      logger.debug(`Storage set: ${key}`, value);
     } catch (error) {
-      logger.error(`[STORAGE SERVICE] FAILED to set value - Key: ${key}, Error: ${error}, Stack: ${error instanceof Error ? error.stack : String(error)}`);
       const message = `Failed to set value for key: ${key}`;
       logger.error(message, error);
       throw new StorageError(message, key, 'set');
@@ -66,7 +53,6 @@ class StorageService {
     try {
       const prefixedKey = this.prefixKey(key);
       await chrome.storage.local.remove(prefixedKey);
-      logger.debug(`Storage remove: ${key}`);
     } catch (error) {
       const message = `Failed to remove value for key: ${key}`;
       logger.error(message, error);
@@ -81,7 +67,6 @@ class StorageService {
     try {
       const allKeys = await this.keys();
       await chrome.storage.local.remove(allKeys);
-      logger.debug('Storage cleared');
     } catch (error) {
       const message = 'Failed to clear storage';
       logger.error(message, error);
@@ -112,7 +97,6 @@ class StorageService {
       const keys = Object.keys(result).filter(key => 
         key.startsWith(STORAGE_PREFIX)
       );
-      logger.debug('Storage keys retrieved', keys);
       return keys;
     } catch (error) {
       const message = 'Failed to get storage keys';
@@ -137,8 +121,6 @@ class StorageService {
           });
         }
       }
-      
-      logger.debug('Storage items retrieved', items);
       return items;
     } catch (error) {
       const message = 'Failed to get all storage items';
@@ -160,8 +142,6 @@ class StorageService {
         const prefixedKey = this.prefixKey(key);
         output[key] = (result[prefixedKey] as T) ?? null;
       }
-      
-      logger.debug(`Storage get multiple: ${keys.join(', ')}`, output);
       return output;
     } catch (error) {
       const message = `Failed to get multiple values for keys: ${keys.join(', ')}`;
@@ -179,9 +159,7 @@ class StorageService {
       for (const [key, value] of Object.entries(items)) {
         data[this.prefixKey(key)] = value;
       }
-      
       await chrome.storage.local.set(data);
-      logger.debug('Storage set multiple', items);
     } catch (error) {
       const message = 'Failed to set multiple values';
       logger.error(message, error);

@@ -3,7 +3,6 @@
  * Handles window-related Chrome Extension API events
  */
 
-import { logger } from '../utils/logger';
 import { activityQueueService } from '../services/activityQueue';
 import { sessionService } from '../services/session';
 import { syncService } from '../services/sync';
@@ -20,7 +19,6 @@ function generateActivityId(): string {
  * Handle window focus changed event
  */
 export function handleWindowFocusChanged(windowId: number): void {
-  logger.info(`[WINDOW LISTENER] handleWindowFocusChanged called - Window ID: ${windowId}`);
   // chrome.windows.WINDOW_ID_NONE (-1) indicates no window is focused
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
     // No window is focused, we can still log this event
@@ -36,9 +34,7 @@ export function handleWindowFocusChanged(windowId: number): void {
       organizationId: null, // Will be set by activityQueueService
     };
 
-    logger.info('[WINDOW LISTENER] About to call addActivity for window_focus_lost');
     activityQueueService.addActivity(activity);
-    logger.info('Window focus lost (no window focused)');
     
     // End current session when window loses focus
     sessionService.endSession('window_focus_lost');
@@ -57,9 +53,7 @@ export function handleWindowFocusChanged(windowId: number): void {
     organizationId: null, // Will be set by activityQueueService
   };
 
-  logger.info('[WINDOW LISTENER] About to call addActivity for window_focus_changed');
   activityQueueService.addActivity(activity);
-  logger.info(`Window focus changed - Window ID: ${windowId}, Focused: true`);
 
   // Trigger debounced sync when browser regains focus
   syncService.triggerSync();
@@ -70,8 +64,6 @@ export function handleWindowFocusChanged(windowId: number): void {
  */
 export function registerWindowListeners(): void {
   chrome.windows.onFocusChanged.addListener(handleWindowFocusChanged);
-  
-  logger.info('Window event listeners registered');
 }
 
 /**
@@ -79,6 +71,4 @@ export function registerWindowListeners(): void {
  */
 export function unregisterWindowListeners(): void {
   chrome.windows.onFocusChanged.removeListener(handleWindowFocusChanged);
-  
-  logger.info('Window event listeners unregistered');
 }

@@ -45,7 +45,6 @@ class SyncService {
       }
 
       if (alarm) {
-        logger.info('[SYNC SERVICE] Periodic sync alarm already exists');
         return;
       }
 
@@ -55,8 +54,6 @@ class SyncService {
       }, () => {
         if (chrome.runtime.lastError) {
           logger.error('[SYNC SERVICE] Failed to create periodic sync alarm', chrome.runtime.lastError);
-        } else {
-          logger.info('[SYNC SERVICE] Periodic sync alarm created (1-minute interval)');
         }
       });
     });
@@ -67,13 +64,9 @@ class SyncService {
    */
   stopPeriodicSync(): void {
     // Clear alarm
-    chrome.alarms.clear(SYNC_ALARM_NAME, (wasCleared) => {
+    chrome.alarms.clear(SYNC_ALARM_NAME, (_wasCleared) => {
       if (chrome.runtime.lastError) {
         logger.error('[SYNC SERVICE] Failed to clear periodic sync alarm', chrome.runtime.lastError);
-      } else if (wasCleared) {
-        logger.info('[SYNC SERVICE] Periodic sync alarm cleared');
-      } else {
-        logger.info('[SYNC SERVICE] Periodic sync alarm was not found or already cleared');
       }
     });
 
@@ -81,14 +74,12 @@ class SyncService {
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
-      logger.info('[SYNC SERVICE] Debounce timer cleared');
     }
 
     // Clear retry timer
     if (this.retryTimer !== null) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
-      logger.info('[SYNC SERVICE] Retry timer cleared');
     }
   }
 
@@ -106,11 +97,9 @@ class SyncService {
       const totalPending = pendingSessions.length + pendingIdle.length + pendingActivities.length;
 
       if (totalPending === 0) {
-        logger.debug('[SYNC SERVICE] No pending items, skipping periodic sync');
         return;
       }
 
-      logger.info(`[SYNC SERVICE] Periodic sync triggered - Pending: ${totalPending} (sessions: ${pendingSessions.length}, idle: ${pendingIdle.length}, activities: ${pendingActivities.length})`);
       await this.syncSessions();
     } catch (error) {
       logger.error('[SYNC SERVICE] Periodic sync check failed', error);
@@ -126,19 +115,15 @@ class SyncService {
     // Clear existing debounce timer
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer);
-      logger.debug('[SYNC SERVICE] Debounce timer reset');
     }
 
     // Set new debounce timer
     this.debounceTimer = setTimeout(() => {
-      logger.info('[SYNC SERVICE] Debounced sync triggered');
       this.syncSessions().catch(error => {
         logger.error('[SYNC SERVICE] Debounced sync failed', error);
       });
       this.debounceTimer = null;
     }, DEBOUNCE_DELAY_MS);
-
-    logger.debug('[SYNC SERVICE] Debounced sync scheduled in 5s');
   }
 
   /**
@@ -147,7 +132,6 @@ class SyncService {
   async syncSessions(): Promise<void> {
     // Prevent concurrent syncs
     if (this.isSyncing) {
-      logger.info('[SYNC SERVICE] Sync already in progress, marking as pending');
       this.pendingSync = true;
       return;
     }
@@ -155,36 +139,41 @@ class SyncService {
     try {
       this.isSyncing = true;
       this.pendingSync = false;
-      logger.info('[SYNC SERVICE] Sync started');
+      logger.info('[SYNC] Started');
 
       // Check authentication status
       const isAuth = await authService.isAuthenticated();
       if (!isAuth) {
-        logger.info('[SYNC SERVICE] User not authenticated, skipping sync');
         return;
       }
 
       // Ensure API client has valid token
       const user = await authService.restoreSession();
       if (!user) {
-        logger.info('[SYNC SERVICE] Failed to restore session, skipping sync');
         return;
       }
 
-      logger.info(`[SYNC SERVICE] Session restored - User ID: ${user.id}, Organization ID: ${user.organization?.id}`);
-
       // Sync browser sessions
-      await this.syncBrowserSessions();
+      const browserCount = await this.syncBrowserSessions();
+      if (browserCount > 0) {
+        logger.info(`[SYNC] Browser sessions uploaded: ${browserCount}`);
+      }
 
       // Sync idle sessions
-      await this.syncIdleSessions();
+      const idleCount = await this.syncIdleSessions();
+      if (idleCount > 0) {
+        logger.info(`[SYNC] Idle sessions uploaded: ${idleCount}`);
+      }
 
       // Sync activity events
-      await this.syncActivities();
+      const activityCount = await this.syncActivities();
+      if (activityCount > 0) {
+        logger.info(`[SYNC] Activity events uploaded: ${activityCount}`);
+      }
 
       // Reset retry counter on successful sync
       this.retryCounter = 0;
-      logger.info('[SYNC SERVICE] Sync completed successfully');
+      logger.info('[SYNC] Sync completed');
     } catch (error: any) {
       logger.error('[SYNC SERVICE] Sync failed', error);
 
@@ -197,7 +186,6 @@ class SyncService {
 
       // Check if another sync was requested during this sync
       if (this.pendingSync) {
-        logger.info('[SYNC SERVICE] Pending sync detected, triggering immediately');
         this.pendingSync = false;
         this.syncSessions().catch(error => {
           logger.error('[SYNC SERVICE] Pending sync failed', error);
@@ -241,21 +229,20 @@ class SyncService {
       const retryAfterSeconds = parseInt(retryAfter, 10);
       if (!isNaN(retryAfterSeconds)) {
         delayMs = retryAfterSeconds * 1000;
-        logger.info(`[SYNC SERVICE] Retry-After header honored: ${retryAfterSeconds}s`);
       } else {
         // If it's a date, calculate delay from now
         const retryAfterDate = new Date(retryAfter);
         const now = new Date();
         delayMs = Math.max(0, retryAfterDate.getTime() - now.getTime());
-        logger.info(`[SYNC SERVICE] Retry-After date honored: ${retryAfter}`);
       }
     } else {
       // Use exponential backoff
       const retryIndex = Math.min(this.retryCounter, RETRY_DELAYS_MS.length - 1);
       delayMs = RETRY_DELAYS_MS[retryIndex];
       this.retryCounter++;
-      logger.info(`[SYNC SERVICE] Retry scheduled in ${delayMs / 1000}s (attempt ${this.retryCounter})`);
     }
+
+    logger.warn('[SYNC] Retry scheduled');
 
     // Clear existing retry timer
     if (this.retryTimer !== null) {
@@ -264,7 +251,6 @@ class SyncService {
 
     // Schedule retry
     this.retryTimer = setTimeout(() => {
-      logger.info('[SYNC SERVICE] Retry executing');
       this.syncSessions().catch(error => {
         logger.error('[SYNC SERVICE] Retry failed', error);
       });
@@ -275,104 +261,76 @@ class SyncService {
   /**
    * Synchronize pending browser sessions
    */
-  private async syncBrowserSessions(): Promise<void> {
+  private async syncBrowserSessions(): Promise<number> {
     try {
       const pendingSessions = await sessionQueueService.getPendingSessions();
-      logger.info(`[SYNC SERVICE] Pending browser sessions: ${pendingSessions.length}`);
 
       if (pendingSessions.length === 0) {
-        logger.info('[SYNC SERVICE] No pending browser sessions to sync');
-        return;
+        return 0;
       }
 
       // Process in batches
       const batches = this.createBatches(pendingSessions, SYNC_CONFIG.BATCH_SIZE);
-      logger.info(`[SYNC SERVICE] Created ${batches.length} browser session batches for upload`);
 
       let successCount = 0;
-      let failureCount = 0;
 
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i];
-        logger.info(`[SYNC SERVICE] Processing browser session batch ${i + 1}/${batches.length} - Size: ${batch.length}`);
-
-        // Log batch payload for debugging
-        logger.info(
-          `[SYNC SERVICE] Browser batch payload - Session IDs: ${batch.map(item => item.data.sessionId).join(', ')}, URLs: ${batch.map(item => item.data.url?.substring(0, 50) + '...').join(', ')}, Title lengths: ${batch.map(item => item.data.title?.length ?? 0).join(', ')}`
-        );
-
+      for (const batch of batches) {
         try {
           await this.uploadBatch(batch);
           successCount += batch.length;
-          logger.info(`[SYNC SERVICE] Browser session batch ${i + 1} uploaded successfully - Sessions: ${batch.length}`);
         } catch (error) {
-          failureCount += batch.length;
-          logger.error(`[SYNC SERVICE] Browser session batch ${i + 1} upload failed - Sessions: ${batch.length}`, error);
+          logger.error('[SYNC SERVICE] Browser session batch upload failed', error);
           // Continue with next batch even if this one fails
         }
       }
 
-      logger.info(`[SYNC SERVICE] Browser session sync completed - Success: ${successCount}, Failure: ${failureCount}`);
-
       // Remove successfully uploaded sessions
       if (successCount > 0) {
         await sessionQueueService.removeUploadedSessions();
-        logger.info(`[SYNC SERVICE] Removed ${successCount} uploaded browser sessions from queue`);
       }
+
+      return successCount;
     } catch (error) {
       logger.error('[SYNC SERVICE] Browser session sync failed', error);
+      return 0;
     }
   }
 
   /**
    * Synchronize pending idle sessions
    */
-  private async syncIdleSessions(): Promise<void> {
+  private async syncIdleSessions(): Promise<number> {
     try {
       const pendingIdleSessions = await idleQueueService.getPendingSessions();
-      logger.info(`[SYNC SERVICE] Pending idle sessions: ${pendingIdleSessions.length}`);
 
       if (pendingIdleSessions.length === 0) {
-        logger.info('[SYNC SERVICE] No pending idle sessions to sync');
-        return;
+        return 0;
       }
 
       // Process in batches
       const batches = this.createBatches(pendingIdleSessions, SYNC_CONFIG.BATCH_SIZE);
-      logger.info(`[SYNC SERVICE] Created ${batches.length} idle session batches for upload`);
 
       let successCount = 0;
-      let failureCount = 0;
 
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i];
-        logger.info(`[SYNC SERVICE] Processing idle session batch ${i + 1}/${batches.length} - Size: ${batch.length}`);
-
-        // Log batch payload for debugging
-        logger.info(
-          `[SYNC SERVICE] Idle batch payload - Session IDs: ${batch.map(item => item.data.idleId).join(', ')}, Start times: ${batch.map(item => item.data.startTime ? new Date(item.data.startTime).toISOString() : 'null').join(', ')}, End times: ${batch.map(item => item.data.endTime ? new Date(item.data.endTime).toISOString() : 'null').join(', ')}, Durations: ${batch.map(item => `${item.data.durationSeconds}s`).join(', ')}`
-        );
-
+      for (const batch of batches) {
         try {
           await this.uploadIdleBatch(batch);
           successCount += batch.length;
-          logger.info(`[SYNC SERVICE] Idle session batch ${i + 1} uploaded successfully - Sessions: ${batch.length}`);
         } catch (error) {
-          failureCount += batch.length;
-          logger.error(`[SYNC SERVICE] Idle session batch ${i + 1} upload failed - Sessions: ${batch.length}`, error);
+          logger.error('[SYNC SERVICE] Idle session batch upload failed', error);
           // Continue with next batch even if this one fails
         }
       }
 
-      logger.info(`[SYNC SERVICE] Idle session sync completed - Success: ${successCount}, Failure: ${failureCount}`);
-
       // Remove successfully uploaded idle sessions
       if (successCount > 0) {
         await idleQueueService.removeUploadedSessions();
-        logger.info(`[SYNC SERVICE] Removed ${successCount} uploaded idle sessions from queue`);
       }
+
+      return successCount;
     } catch (error) {
       logger.error('[SYNC SERVICE] Idle session sync failed', error);
+      return 0;
     }
   }
 
@@ -402,14 +360,13 @@ class SyncService {
           validSessions.push(sessionData);
           validItems.push(item);
         } catch (error) {
-          logger.warn(`[SYNC SERVICE] Skipping invalid session - Session ID: ${item.data.sessionId}`, error);
+          logger.warn(`[SYNC SERVICE] Skipping invalid session`);
           // Mark invalid sessions as uploaded to remove them from queue
           await sessionQueueService.markAsUploaded(item.id);
         }
       }
 
       if (validSessions.length === 0) {
-        logger.info('[SYNC SERVICE] No valid sessions in batch to upload');
         return;
       }
 
@@ -417,10 +374,7 @@ class SyncService {
         sessions: validSessions,
       };
 
-      logger.info(`[SYNC SERVICE] Uploading batch - Size: ${validSessions.length}`);
-      logger.info(`[SYNC SERVICE] Payload: ${JSON.stringify(payload, null, 2)}`);
       await apiClient.post(API_ENDPOINTS.ACTIVITY_BATCH, payload);
-      logger.info('[SYNC SERVICE] Batch upload successful');
 
       // Mark valid sessions as uploaded
       for (const item of validItems) {
@@ -447,14 +401,13 @@ class SyncService {
           validSessions.push(sessionData);
           validItems.push(item);
         } catch (error) {
-          logger.warn(`[SYNC SERVICE] Skipping invalid idle session - Idle ID: ${item.data.idleId}`, error);
+          logger.warn(`[SYNC SERVICE] Skipping invalid idle session`);
           // Mark invalid sessions as uploaded to remove them from queue
           await idleQueueService.markAsUploaded(item.id);
         }
       }
 
       if (validSessions.length === 0) {
-        logger.info('[SYNC SERVICE] No valid idle sessions in batch to upload');
         return;
       }
 
@@ -462,9 +415,7 @@ class SyncService {
         sessions: validSessions,
       };
 
-      logger.info(`[SYNC SERVICE] Uploading idle batch - Size: ${validSessions.length}`);
       await apiClient.post(API_ENDPOINTS.IDLE_BATCH, payload);
-      logger.info('[SYNC SERVICE] Idle batch upload successful');
 
       // Mark valid sessions as uploaded
       for (const item of validItems) {
@@ -479,9 +430,8 @@ class SyncService {
         for (const item of batch) {
           try {
             await idleQueueService.markAsUploaded(item.id);
-            logger.info(`[SYNC SERVICE] Marked session as uploaded due to 409 conflict - Idle ID: ${item.data.idleId}`);
           } catch (markError) {
-            logger.error(`[SYNC SERVICE] Failed to mark session as uploaded - Idle ID: ${item.data.idleId}`, markError);
+            logger.error('[SYNC SERVICE] Failed to mark session as uploaded', markError);
           }
         }
         throw error;
@@ -497,25 +447,21 @@ class SyncService {
   private convertSessionToBackendFormat(session: WebsiteSession): any {
     // Skip sessions without required fields
     if (!session.url || !session.domain) {
-      logger.warn(`[SYNC SERVICE] Skipping session with missing required data - Session ID: ${session.sessionId}, URL: ${session.url}, Domain: ${session.domain}`);
       throw new Error('Session missing required fields: url or domain');
     }
 
     // Skip sessions with invalid URL protocols (backend requires http:// or https://)
     if (!session.url.startsWith('http://') && !session.url.startsWith('https://')) {
-      logger.warn(`[SYNC SERVICE] Skipping session with invalid URL protocol - Session ID: ${session.sessionId}, URL: ${session.url}`);
       throw new Error('Session URL must start with http:// or https://');
     }
 
     // Skip sessions without valid end time
     if (!session.endTime) {
-      logger.warn(`[SYNC SERVICE] Skipping session without end time - Session ID: ${session.sessionId}`);
       throw new Error('Session missing end time');
     }
 
     // Skip sessions with invalid duration (end time must be after start time)
     if (session.endTime <= session.startTime) {
-      logger.warn(`[SYNC SERVICE] Skipping session with invalid duration - Session ID: ${session.sessionId}, Start: ${session.startTime}, End: ${session.endTime}`);
       throw new Error('Session end time must be after start time');
     }
 
@@ -524,17 +470,6 @@ class SyncService {
     const url = session.url.substring(0, 2048);
     const domain = session.domain.substring(0, 255);
     const title = session.title ? session.title.substring(0, 500) : null;
-
-    // Log if truncation occurred
-    if (session.url.length > 2048) {
-      logger.warn(`[SYNC SERVICE] Truncating URL from ${session.url.length} to 2048 chars - Session ID: ${session.sessionId}`);
-    }
-    if (session.title && session.title.length > 500) {
-      logger.warn(`[SYNC SERVICE] Truncating title from ${session.title.length} to 500 chars - Session ID: ${session.sessionId}`);
-    }
-    if (session.domain.length > 255) {
-      logger.warn(`[SYNC SERVICE] Truncating domain from ${session.domain.length} to 255 chars - Session ID: ${session.sessionId}`);
-    }
 
     return {
       browser_name: browserName,
@@ -549,53 +484,38 @@ class SyncService {
   /**
    * Synchronize pending activity events
    */
-  private async syncActivities(): Promise<void> {
+  private async syncActivities(): Promise<number> {
     try {
       const pendingActivities = await activityQueueService.getPendingActivities();
-      logger.info(`[SYNC SERVICE] Pending activity events: ${pendingActivities.length}`);
 
       if (pendingActivities.length === 0) {
-        logger.info('[SYNC SERVICE] No pending activity events to sync');
-        return;
+        return 0;
       }
 
       // Process in batches
       const batches = this.createBatches(pendingActivities, SYNC_CONFIG.BATCH_SIZE);
-      logger.info(`[SYNC SERVICE] Created ${batches.length} activity event batches for upload`);
 
       let successCount = 0;
-      let failureCount = 0;
 
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i];
-        logger.info(`[SYNC SERVICE] Processing activity event batch ${i + 1}/${batches.length} - Size: ${batch.length}`);
-
-        // Log batch payload for debugging
-        logger.info(
-          `[SYNC SERVICE] Activity batch payload - Event IDs: ${batch.map(item => item.data.id).join(', ')}, Event types: ${batch.map(item => item.data.eventType).join(', ')}`
-        );
-
+      for (const batch of batches) {
         try {
           const uploadedCount = await this.uploadActivityBatch(batch);
           successCount += uploadedCount;
-          failureCount += batch.length - uploadedCount;
-          logger.info(`[SYNC SERVICE] Activity event batch ${i + 1} uploaded successfully - Uploaded: ${uploadedCount}, Failed: ${batch.length - uploadedCount}`);
         } catch (error) {
-          failureCount += batch.length;
-          logger.error(`[SYNC SERVICE] Activity event batch ${i + 1} upload failed - Events: ${batch.length}`, error);
+          logger.error('[SYNC SERVICE] Activity event batch upload failed', error);
           // Continue with next batch even if this one fails
         }
       }
 
-      logger.info(`[SYNC SERVICE] Activity event sync completed - Success: ${successCount}, Failure: ${failureCount}`);
-
       // Remove successfully uploaded activity events
       if (successCount > 0) {
         await activityQueueService.removeUploadedActivities();
-        logger.info(`[SYNC SERVICE] Removed ${successCount} uploaded activity events from queue`);
       }
+
+      return successCount;
     } catch (error) {
       logger.error('[SYNC SERVICE] Activity event sync failed', error);
+      return 0;
     }
   }
 
@@ -614,14 +534,13 @@ class SyncService {
           validEvents.push(eventData);
           validItems.push(item);
         } catch (error) {
-          logger.warn(`[SYNC SERVICE] Skipping invalid activity event - Event ID: ${item.data.id}`, error);
+          logger.warn(`[SYNC SERVICE] Skipping invalid activity event`);
           // Mark invalid events as uploaded to remove them from queue
           await activityQueueService.markAsUploaded(item.id);
         }
       }
 
       if (validEvents.length === 0) {
-        logger.info('[SYNC SERVICE] No valid activity events in batch to upload');
         return 0;
       }
 
@@ -629,9 +548,7 @@ class SyncService {
         events: validEvents,
       };
 
-      logger.info(`[SYNC SERVICE] Uploading activity batch - Size: ${validEvents.length}`);
-      const response = await apiClient.post(API_ENDPOINTS.EVENTS_BATCH, payload);
-      logger.info(`[SYNC SERVICE] Activity batch upload successful - Response: ${JSON.stringify(response.data)}`);
+      await apiClient.post(API_ENDPOINTS.EVENTS_BATCH, payload);
 
       // Mark valid events as uploaded
       for (const item of validItems) {
@@ -653,12 +570,10 @@ class SyncService {
     let eventId = activity.id;
     if (!eventId) {
       eventId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      logger.info(`[SYNC SERVICE] Generated event ID for old activity: ${eventId}`);
     }
 
     // Validate required fields
     if (!activity.eventType) {
-      logger.warn(`[SYNC SERVICE] Skipping activity with missing required data - Event ID: ${eventId}, Event type: ${activity.eventType}`);
       throw new Error('Activity missing required field: eventType');
     }
 
@@ -672,17 +587,6 @@ class SyncService {
     const pageTitle = activity.title ? activity.title.substring(0, 500) : null;
     const previousUrl = activity.previousUrl ? activity.previousUrl.substring(0, 2048) : null;
     const previousDomain = activity.previousDomain ? activity.previousDomain.substring(0, 255) : null;
-
-    // Log if truncation occurred
-    if (activity.url && activity.url.length > 2048) {
-      logger.warn(`[SYNC SERVICE] Truncating websiteUrl from ${activity.url.length} to 2048 chars - Event ID: ${eventId}`);
-    }
-    if (activity.title && activity.title.length > 500) {
-      logger.warn(`[SYNC SERVICE] Truncating pageTitle from ${activity.title.length} to 500 chars - Event ID: ${eventId}`);
-    }
-    if (activity.domain && activity.domain.length > 255) {
-      logger.warn(`[SYNC SERVICE] Truncating websiteDomain from ${activity.domain.length} to 255 chars - Event ID: ${eventId}`);
-    }
 
     return {
       event_id: eventId,
@@ -731,13 +635,11 @@ class SyncService {
   private convertIdleSessionToBackendFormat(session: IdleSession): any {
     // Skip sessions without valid end time
     if (!session.endTime) {
-      logger.warn(`[SYNC SERVICE] Skipping idle session without end time - Idle ID: ${session.idleId}`);
       throw new Error('Idle session missing end time');
     }
 
     // Skip sessions with invalid duration (end time must be after start time)
     if (session.endTime <= session.startTime) {
-      logger.warn(`[SYNC SERVICE] Skipping idle session with invalid duration - Idle ID: ${session.idleId}, Start: ${session.startTime}, End: ${session.endTime}`);
       throw new Error('Idle session end time must be after start time');
     }
 

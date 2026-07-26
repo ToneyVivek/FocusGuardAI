@@ -17,8 +17,6 @@ import { idleQueueService } from '../services/idleQueue';
  * Initialize background service worker
  */
 function initializeBackground(): void {
-  logger.info('Background service worker initializing');
-
   try {
     // Register all event listeners
     registerTabListeners();
@@ -29,20 +27,12 @@ function initializeBackground(): void {
     handleExtensionStartup();
 
     // Clean up invalid idle sessions from queue (stale data from before validation fix)
-    idleQueueService.cleanupInvalidSessions().then(removedCount => {
-      if (removedCount > 0) {
-        logger.info(`[BACKGROUND] Cleaned up ${removedCount} invalid idle sessions from queue on startup`);
-      }
-    }).catch(error => {
+    idleQueueService.cleanupInvalidSessions().catch(error => {
       logger.error('[BACKGROUND] Failed to cleanup invalid idle sessions', error);
     });
 
     // Clean up overlapping idle sessions from queue
-    idleQueueService.cleanupOverlappingSessions().then(removedCount => {
-      if (removedCount > 0) {
-        logger.info(`[BACKGROUND] Cleaned up ${removedCount} overlapping idle sessions from queue on startup`);
-      }
-    }).catch(error => {
+    idleQueueService.cleanupOverlappingSessions().catch(error => {
       logger.error('[BACKGROUND] Failed to cleanup overlapping idle sessions', error);
     });
 
@@ -56,8 +46,6 @@ function initializeBackground(): void {
       logger.error('[BACKGROUND] Failed to start idle detection', error);
       // Continue initialization even if idle detection fails
     }
-
-    logger.info('Background service worker initialized');
   } catch (error) {
     logger.error('[BACKGROUND] Failed to initialize background service worker', error);
     // Don't throw - allow service worker to start even if some features fail
@@ -78,7 +66,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // Chrome MV3 does not guarantee async operations complete before termination
 // All sessions are already persisted to chrome.storage.local as they end, so data is safe
 chrome.runtime.onSuspend.addListener(() => {
-  logger.info('Browser shutdown detected, attempting to end sessions (best-effort)');
   // Fire and forget - don't await since Chrome may terminate before completion
   handleBrowserShutdown().catch(error => {
     logger.error('[BACKGROUND] Failed to handle browser shutdown', error);

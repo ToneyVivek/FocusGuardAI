@@ -46,10 +46,6 @@ class IdleQueueService {
   async addIdleSession(session: IdleSession): Promise<void> {
     return this.withWriteLock(async () => {
       try {
-        logger.info(
-          `[IDLE QUEUE] Before addIdleSession - Idle ID: ${session.idleId}, Start: ${session.startTime ? new Date(session.startTime).toISOString() : 'null'}, End: ${session.endTime ? new Date(session.endTime).toISOString() : 'null'}, Duration: ${session.durationSeconds}s, Threshold: ${IDLE_CONFIG.MIN_DURATION_SECONDS}s`
-        );
-
         // Validate idle duration before adding to queue
         if (session.durationSeconds === null || session.durationSeconds < IDLE_CONFIG.MIN_DURATION_SECONDS) {
           logger.warn(
@@ -74,14 +70,10 @@ class IdleQueueService {
 
         if (overlapping) {
           logger.warn(
-            `[IDLE QUEUE] Rejecting idle session - Overlaps with existing session: ${overlapping.data.idleId} (${overlapping.data.startTime ? new Date(overlapping.data.startTime).toISOString() : 'null'} - ${overlapping.data.endTime ? new Date(overlapping.data.endTime).toISOString() : 'null'})`
+            `[IDLE QUEUE] Rejecting idle session - Overlaps with existing session: ${overlapping.data.idleId}`
           );
           return;
         }
-
-        logger.info(`[IDLE QUEUE] Idle session validation passed - Adding to queue`);
-
-        logger.info(`[IDLE QUEUE] Current queue size before add: ${queue.length}`);
 
         const queueItem: IdleQueueItem = {
           id: this.generateId(),
@@ -92,7 +84,6 @@ class IdleQueueService {
 
         // Add to beginning of queue (newest first)
         queue.unshift(queueItem);
-        logger.info(`[IDLE QUEUE] Queue size after unshift: ${queue.length}`);
 
         // Enforce maximum queue size
         if (queue.length > QUEUE_CONFIG.MAX_IDLE_SIZE) {
@@ -100,16 +91,9 @@ class IdleQueueService {
           logger.warn(`Idle queue truncated to ${QUEUE_CONFIG.MAX_IDLE_SIZE} items`);
         }
 
-        logger.info(`[IDLE QUEUE] Before storageService.set - Key: ${IDLE_QUEUE_KEY}, Queue size: ${queue.length}`);
         await storageService.set(IDLE_QUEUE_KEY, queue);
-        logger.info(`[IDLE QUEUE] After storageService.set - SUCCESS - Idle ID: ${session.idleId}`);
-
-        // Verify the write
-        const verifyQueue = await this.getQueue();
-        logger.info(`[IDLE QUEUE] Verification - Queue size after write: ${verifyQueue.length}`);
       } catch (error) {
         logger.error('[IDLE QUEUE] FAILED to add idle session to queue', error);
-        logger.error(`[IDLE QUEUE] Error stack: ${error instanceof Error ? error.stack : String(error)}`);
         throw error;
       }
     });
@@ -153,7 +137,6 @@ class IdleQueueService {
         if (item) {
           item.uploaded = true;
           await storageService.set(IDLE_QUEUE_KEY, queue);
-          logger.debug(`Idle session marked as uploaded: ${itemId}`);
         }
       } catch (error) {
         logger.error('[IDLE QUEUE] Failed to mark idle session as uploaded', error);
@@ -172,7 +155,6 @@ class IdleQueueService {
         const pendingQueue = queue.filter(item => !item.uploaded);
 
         await storageService.set(IDLE_QUEUE_KEY, pendingQueue);
-        logger.debug(`Removed ${queue.length - pendingQueue.length} uploaded idle sessions`);
       } catch (error) {
         logger.error('[IDLE QUEUE] Failed to remove uploaded idle sessions', error);
         throw error;
@@ -187,7 +169,6 @@ class IdleQueueService {
     return this.withWriteLock(async () => {
       try {
         await storageService.remove(IDLE_QUEUE_KEY);
-        logger.info('Idle queue cleared');
       } catch (error) {
         logger.error('[IDLE QUEUE] Failed to clear idle queue', error);
         throw error;
@@ -218,13 +199,9 @@ class IdleQueueService {
         if (validQueue.length !== originalSize) {
           await storageService.set(IDLE_QUEUE_KEY, validQueue);
           const removedCount = originalSize - validQueue.length;
-          logger.info(
-            `[IDLE QUEUE] Cleaned up ${removedCount} invalid sessions (${originalSize} -> ${validQueue.length})`
-          );
           return removedCount;
         }
 
-        logger.info('[IDLE QUEUE] No invalid sessions found in queue');
         return 0;
       } catch (error) {
         logger.error('[IDLE QUEUE] Failed to cleanup invalid sessions', error);
@@ -241,7 +218,6 @@ class IdleQueueService {
     return this.withWriteLock(async () => {
       try {
         const queue = await this.getQueue();
-        const originalSize = queue.length;
 
         // Sort by start time to process in chronological order
         const sortedQueue = [...queue].sort((a, b) => {
@@ -268,7 +244,7 @@ class IdleQueueService {
           if (overlaps) {
             removedIds.push(item.data.idleId);
             logger.warn(
-              `[IDLE QUEUE] Removing overlapping session - Idle ID: ${item.data.idleId}, Start: ${item.data.startTime ? new Date(item.data.startTime).toISOString() : 'null'}, End: ${item.data.endTime ? new Date(item.data.endTime).toISOString() : 'null'}`
+              `[IDLE QUEUE] Removing overlapping session - Idle ID: ${item.data.idleId}`
             );
           } else {
             nonOverlappingQueue.push(item);
@@ -277,13 +253,9 @@ class IdleQueueService {
 
         if (removedIds.length > 0) {
           await storageService.set(IDLE_QUEUE_KEY, nonOverlappingQueue);
-          logger.info(
-            `[IDLE QUEUE] Cleaned up ${removedIds.length} overlapping sessions (${originalSize} -> ${nonOverlappingQueue.length}), Removed IDs: ${removedIds.join(', ')}`
-          );
           return removedIds.length;
         }
 
-        logger.info('[IDLE QUEUE] No overlapping sessions found in queue');
         return 0;
       } catch (error) {
         logger.error('[IDLE QUEUE] Failed to cleanup overlapping sessions', error);

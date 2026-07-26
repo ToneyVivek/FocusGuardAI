@@ -74,7 +74,6 @@ function createTabActivity(
  * Handle tab activated event
  */
 export function handleTabActivated(activeInfo: any): void {
-  logger.info(`[TAB LISTENER] handleTabActivated called - Tab ID: ${activeInfo.tabId}`);
   chrome.tabs.get(activeInfo.tabId, (tab) => {
     if (chrome.runtime.lastError) {
       logger.error('Error getting tab in onActivated', chrome.runtime.lastError);
@@ -83,11 +82,7 @@ export function handleTabActivated(activeInfo: any): void {
 
     const activity = createTabActivity('tab_activated', tab, activeInfo.windowId);
     if (activity) {
-      logger.info(`[TAB LISTENER] About to call addActivity for tab_activated - Tab ID: ${tab.id}, URL: ${tab.url}`);
       activityQueueService.addActivity(activity);
-      logger.info(`Tab activated - Tab ID: ${tab.id}, URL: ${tab.url}`);
-    } else {
-      logger.info(`[TAB LISTENER] Activity is null (filtered URL) - URL: ${tab.url}`);
     }
     
     // Start session for activated tab (independent of activity filtering)
@@ -100,8 +95,6 @@ export function handleTabActivated(activeInfo: any): void {
  * Handle tab created event
  */
 export function handleTabCreated(tab: chrome.tabs.Tab): void {
-  logger.info(`[TAB LISTENER] handleTabCreated called - Tab ID: ${tab.id}, URL: ${tab.url}`);
-  
   // Initialize cache entry for this tab
   if (tab.id !== undefined) {
     tabStateCache[tab.id] = {
@@ -113,11 +106,7 @@ export function handleTabCreated(tab: chrome.tabs.Tab): void {
   
   const activity = createTabActivity('tab_created', tab);
   if (activity) {
-    logger.info(`[TAB LISTENER] About to call addActivity for tab_created - Tab ID: ${tab.id}, URL: ${tab.url}`);
     activityQueueService.addActivity(activity);
-    logger.info(`Tab created - Tab ID: ${tab.id}, URL: ${tab.url}`);
-  } else {
-    logger.info(`[TAB LISTENER] Activity is null (filtered URL) - URL: ${tab.url}`);
   }
 }
 
@@ -125,8 +114,6 @@ export function handleTabCreated(tab: chrome.tabs.Tab): void {
  * Handle tab removed event
  */
 export function handleTabRemoved(tabId: number, removeInfo: any): void {
-  logger.info(`[TAB LISTENER] handleTabRemoved called - Tab ID: ${tabId}, Window ID: ${removeInfo.windowId}`);
-  
   // Clean up cache entry
   delete tabStateCache[tabId];
   
@@ -159,9 +146,7 @@ export function handleTabRemoved(tabId: number, removeInfo: any): void {
     organizationId: null,
   };
 
-  logger.info(`[TAB LISTENER] About to call addActivity for tab_removed - Tab ID: ${tabId}`);
   activityQueueService.addActivity(activity);
-  logger.info(`Tab removed - Tab ID: ${tabId}, Window ID: ${removeInfo.windowId}`);
 }
 
 /**
@@ -172,8 +157,6 @@ export function handleTabUpdated(
   changeInfo: any,
   tab: chrome.tabs.Tab
 ): void {
-  logger.info(`[TAB LISTENER] handleTabUpdated called - Tab ID: ${tabId}`);
-  
   // Get current state from cache
   const cachedState = tabStateCache[tabId];
   const currentUrl = tab.url ?? null;
@@ -187,9 +170,6 @@ export function handleTabUpdated(
   
   // Only track if URL changed, title changed, or status became complete
   if (!urlChanged && !titleChanged && !statusBecameComplete) {
-    logger.info(`[TAB LISTENER] Skipping tab update (no meaningful change) - URL changed: ${urlChanged}, Title changed: ${titleChanged}, Status became complete: ${statusBecameComplete}`);
-    logger.info(`[TAB LISTENER] Cache state - Cached URL: ${cachedState?.url}, Current URL: ${currentUrl}, Cached title: ${cachedState?.title}, Current title: ${currentTitle}, Cached status: ${cachedState?.status}, Current status: ${currentStatus}`);
-    
     // Update cache even if we skip the event
     if (tabId !== undefined) {
       tabStateCache[tabId] = {
@@ -212,7 +192,6 @@ export function handleTabUpdated(
 
   // Handle URL change - switch session
   if (urlChanged) {
-    logger.info(`[TAB LISTENER] URL changed, switching session - Tab ID: ${tabId}, New URL: ${currentUrl}`);
     sessionService.switchSession(tabId, tab.windowId ?? null, currentUrl, currentTitle)
       .catch(error => logger.error('[TAB LISTENER] Failed to switch session', error));
   }
@@ -224,11 +203,7 @@ export function handleTabUpdated(
       activity.transitionType = (changeInfo as any).transitionType as TransitionType;
     }
     
-    logger.info(`[TAB LISTENER] About to call addActivity for tab_updated - Tab ID: ${tabId}, URL: ${tab.url}`);
     activityQueueService.addActivity(activity);
-    logger.info(`Tab updated - Tab ID: ${tabId}, URL: ${tab.url}`);
-  } else {
-    logger.info(`[TAB LISTENER] Activity is null (filtered URL) - URL: ${tab.url}`);
   }
 }
 
@@ -240,8 +215,6 @@ export function registerTabListeners(): void {
   chrome.tabs.onCreated.addListener(handleTabCreated);
   chrome.tabs.onRemoved.addListener(handleTabRemoved);
   chrome.tabs.onUpdated.addListener(handleTabUpdated);
-  
-  logger.info('Tab event listeners registered');
 }
 
 /**
@@ -252,6 +225,4 @@ export function unregisterTabListeners(): void {
   chrome.tabs.onCreated.removeListener(handleTabCreated);
   chrome.tabs.onRemoved.removeListener(handleTabRemoved);
   chrome.tabs.onUpdated.removeListener(handleTabUpdated);
-  
-  logger.info('Tab event listeners unregistered');
 }

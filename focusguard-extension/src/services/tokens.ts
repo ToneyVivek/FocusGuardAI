@@ -36,8 +36,6 @@ class TokenService {
       await storageService.set(STORAGE_KEYS.ACCESS_TOKEN, tokenPair.access_token);
       await storageService.set(STORAGE_KEYS.REFRESH_TOKEN, tokenPair.refresh_token);
       await storageService.set(STORAGE_KEYS.USER_DATA, storedTokens);
-
-      logger.info('Tokens saved successfully');
     } catch (error) {
       logger.error('Failed to save tokens', error);
       throw error;
@@ -89,7 +87,6 @@ class TokenService {
       await storageService.remove(STORAGE_KEYS.ACCESS_TOKEN);
       await storageService.remove(STORAGE_KEYS.REFRESH_TOKEN);
       await storageService.remove(STORAGE_KEYS.USER_DATA);
-      logger.info('Tokens removed successfully');
     } catch (error) {
       logger.error('Failed to remove tokens', error);
       throw error;

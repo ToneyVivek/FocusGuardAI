@@ -3,7 +3,6 @@
  * Handles extension lifecycle events (startup, install, update)
  */
 
-import { logger } from '../utils/logger';
 import { activityQueueService } from '../services/activityQueue';
 import { sessionService } from '../services/session';
 import type { LifecycleActivity } from '../types/browser';
@@ -18,9 +17,7 @@ function generateActivityId(): string {
 /**
  * Handle extension installed event
  */
-export function handleExtensionInstalled(details: chrome.runtime.InstalledDetails): void {
-  logger.info(`[LIFECYCLE LISTENER] handleExtensionInstalled called - Reason: ${details.reason}`);
-
+export function handleExtensionInstalled(_details: chrome.runtime.InstalledDetails): void {
   // Create lifecycle activity record
   const activity: LifecycleActivity = {
     id: generateActivityId(),
@@ -33,34 +30,13 @@ export function handleExtensionInstalled(details: chrome.runtime.InstalledDetail
     organizationId: null, // Will be set by activityQueueService
   };
 
-  logger.info('[LIFECYCLE LISTENER] About to call addActivity for extension_installed');
   activityQueueService.addActivity(activity);
-
-  // Log installation reason
-  switch (details.reason) {
-    case 'install':
-      logger.info('Extension installed for the first time');
-      break;
-    case 'update':
-      logger.info(`Extension updated - Previous version: ${details.previousVersion}`);
-      break;
-    case 'chrome_update':
-      logger.info('Chrome updated, extension reloaded');
-      break;
-    case 'shared_module_update':
-      logger.info('Shared module updated, extension reloaded');
-      break;
-    default:
-      logger.info(`Extension installed with unknown reason - Reason: ${details.reason}`);
-  }
 }
 
 /**
  * Handle browser startup event
  */
 export function handleBrowserStartup(): void {
-  logger.info('[LIFECYCLE LISTENER] handleBrowserStartup called');
-
   // Create lifecycle activity record
   const activity: LifecycleActivity = {
     id: generateActivityId(),
@@ -73,7 +49,6 @@ export function handleBrowserStartup(): void {
     organizationId: null, // Will be set by activityQueueService
   };
 
-  logger.info('[LIFECYCLE LISTENER] About to call addActivity for browser_startup');
   activityQueueService.addActivity(activity);
 }
 
@@ -81,8 +56,6 @@ export function handleBrowserStartup(): void {
  * Handle browser shutdown event
  */
 export async function handleBrowserShutdown(): Promise<void> {
-  logger.info('[LIFECYCLE LISTENER] handleBrowserShutdown called');
-  
   // End all active sessions
   await sessionService.endAllSessions();
 }
@@ -91,8 +64,6 @@ export async function handleBrowserShutdown(): Promise<void> {
  * Handle extension startup event
  */
 export function handleExtensionStartup(): void {
-  logger.info('[LIFECYCLE LISTENER] handleExtensionStartup called');
-
   // Create lifecycle activity record
   const activity: LifecycleActivity = {
     id: generateActivityId(),
@@ -105,7 +76,6 @@ export function handleExtensionStartup(): void {
     organizationId: null, // Will be set by activityQueueService
   };
 
-  logger.info('[LIFECYCLE LISTENER] About to call addActivity for extension_startup');
   activityQueueService.addActivity(activity);
 }
 
@@ -117,8 +87,6 @@ export function registerLifecycleListeners(): void {
   
   // Browser startup is handled by chrome.runtime.onStartup
   chrome.runtime.onStartup.addListener(handleBrowserStartup);
-  
-  logger.info('Lifecycle event listeners registered');
 }
 
 /**
@@ -127,6 +95,4 @@ export function registerLifecycleListeners(): void {
 export function unregisterLifecycleListeners(): void {
   chrome.runtime.onInstalled.removeListener(handleExtensionInstalled);
   chrome.runtime.onStartup.removeListener(handleBrowserStartup);
-  
-  logger.info('Lifecycle event listeners unregistered');
 }

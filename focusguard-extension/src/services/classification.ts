@@ -3,7 +3,6 @@
  * Rule-based website categorization
  */
 
-import { logger } from '../utils/logger';
 import { extractDomain } from '../utils/url';
 import type { WebsiteCategory } from '../types/session';
 
@@ -159,9 +158,7 @@ class ClassificationService {
 
     // Check exact domain match
     if (domain in DOMAIN_RULES) {
-      const category = DOMAIN_RULES[domain];
-      logger.info(`[CLASSIFICATION] Domain matched - Domain: ${domain}, Category: ${category}`);
-      return category;
+      return DOMAIN_RULES[domain];
     }
 
     // Check subdomain match (e.g., docs.google.com -> google.com)
@@ -169,13 +166,10 @@ class ClassificationService {
     if (parts.length >= 2) {
       const baseDomain = parts.slice(-2).join('.');
       if (baseDomain in DOMAIN_RULES) {
-        const category = DOMAIN_RULES[baseDomain];
-        logger.info(`[CLASSIFICATION] Base domain matched - Base domain: ${baseDomain}, Category: ${category}`);
-        return category;
+        return DOMAIN_RULES[baseDomain];
       }
     }
 
-    logger.info(`[CLASSIFICATION] No match found - Domain: ${domain}, Category: OTHER`);
     return 'OTHER';
   }
 

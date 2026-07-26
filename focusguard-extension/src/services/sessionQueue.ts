@@ -46,10 +46,7 @@ class SessionQueueService {
   async addSession(session: WebsiteSession): Promise<void> {
     return this.withWriteLock(async () => {
       try {
-        logger.info(`[SESSION QUEUE] Before addSession - Session ID: ${session.sessionId}, Storage key: ${SESSION_QUEUE_KEY}`);
-
         const queue = await this.getQueue();
-        logger.info(`[SESSION QUEUE] Current queue size before add: ${queue.length}`);
 
         const queueItem: SessionQueueItem = {
           id: this.generateId(),
@@ -60,7 +57,6 @@ class SessionQueueService {
 
         // Add to beginning of queue (newest first)
         queue.unshift(queueItem);
-        logger.info(`[SESSION QUEUE] Queue size after unshift: ${queue.length}`);
 
         // Enforce maximum queue size
         if (queue.length > QUEUE_CONFIG.MAX_SESSION_SIZE) {
@@ -68,16 +64,9 @@ class SessionQueueService {
           logger.warn(`Session queue truncated to ${QUEUE_CONFIG.MAX_SESSION_SIZE} items`);
         }
 
-        logger.info(`[SESSION QUEUE] Before storageService.set - Key: ${SESSION_QUEUE_KEY}, Queue size: ${queue.length}`);
         await storageService.set(SESSION_QUEUE_KEY, queue);
-        logger.info(`[SESSION QUEUE] After storageService.set - SUCCESS - Session ID: ${session.sessionId}`);
-
-        // Verify the write
-        const verifyQueue = await this.getQueue();
-        logger.info(`[SESSION QUEUE] Verification - Queue size after write: ${verifyQueue.length}`);
       } catch (error) {
         logger.error('[SESSION QUEUE] FAILED to add session to queue', error);
-        logger.error(`[SESSION QUEUE] Error stack: ${error instanceof Error ? error.stack : String(error)}`);
         throw error;
       }
     });
@@ -121,7 +110,6 @@ class SessionQueueService {
         if (item) {
           item.uploaded = true;
           await storageService.set(SESSION_QUEUE_KEY, queue);
-          logger.debug(`Session marked as uploaded: ${itemId}`);
         }
       } catch (error) {
         logger.error('[SESSION QUEUE] Failed to mark session as uploaded', error);
@@ -140,7 +128,6 @@ class SessionQueueService {
         const pendingQueue = queue.filter(item => !item.uploaded);
 
         await storageService.set(SESSION_QUEUE_KEY, pendingQueue);
-        logger.debug(`Removed ${queue.length - pendingQueue.length} uploaded sessions`);
       } catch (error) {
         logger.error('[SESSION QUEUE] Failed to remove uploaded sessions', error);
         throw error;
@@ -155,7 +142,6 @@ class SessionQueueService {
     return this.withWriteLock(async () => {
       try {
         await storageService.remove(SESSION_QUEUE_KEY);
-        logger.info('Session queue cleared');
       } catch (error) {
         logger.error('[SESSION QUEUE] Failed to clear session queue', error);
         throw error;

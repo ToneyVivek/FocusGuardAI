@@ -80,14 +80,6 @@ class ApiClient {
     }
 
     try {
-      logger.debug(`[API CLIENT] Making ${method} request to ${url}`, {
-        endpoint,
-        method,
-        headers: requestHeaders,
-        hasBody: !!requestBody,
-        contentType,
-      });
-
       const response = await fetch(url, {
         method,
         headers: requestHeaders,
@@ -97,19 +89,12 @@ class ApiClient {
 
       clearTimeout(timeoutId);
 
-      logger.debug(`[API CLIENT] Response received from ${endpoint}`, {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok,
-      });
-
       if (!response.ok) {
         await this.handleErrorResponse(response, endpoint);
       }
 
       const data = await response.json();
 
-      logger.debug(`API ${method} ${endpoint} success`, data);
       return {
         data,
         success: true,

@@ -29,7 +29,6 @@ class SessionService {
     try {
       const user = await storageService.get<User>(STORAGE_KEYS.USER_DATA);
       if (user) {
-        logger.info(`[SESSION SERVICE] Using cached user context - User ID: ${user.id}, Organization ID: ${user.organization?.id}`);
         return {
           userId: user.id,
           organizationId: user.organization?.id ?? null,
@@ -76,7 +75,7 @@ class SessionService {
   ): Promise<void> {
     // Validate URL before creating session
     if (!shouldTrackUrl(url)) {
-      logger.info(`[SESSION SERVICE] Ignoring invalid URL: ${url}`);
+      logger.info(`[SESSION] Ignoring invalid URL: ${url}`);
       return;
     }
 
@@ -105,7 +104,7 @@ class SessionService {
         lifecycleState: SessionLifecycleState.ACTIVE,
       };
 
-      logger.info(`[SESSION SERVICE] Session started - Session ID: ${this.currentSession.sessionId}, Tab ID: ${tabId}, URL: ${url}, Category: ${category}`);
+      logger.info(`[SESSION] Started - ${urlParts?.domain ?? url}`);
     } catch (error) {
       logger.error('[SESSION SERVICE] Failed to start session', error);
       throw error;
@@ -117,16 +116,14 @@ class SessionService {
    * Uses session lifecycle state to prevent duplicate termination
    * Clears session synchronously before async work to eliminate race window
    */
-  async endSession(reason: string): Promise<void> {
+  async endSession(_reason: string): Promise<void> {
     // Return early if no active session
     if (!this.currentSession) {
-      logger.info(`[SESSION SERVICE] No active session to end (reason: ${reason})`);
       return;
     }
 
     // Check session lifecycle state - prevent duplicate termination
     if (this.currentSession.lifecycleState !== SessionLifecycleState.ACTIVE) {
-      logger.info(`[SESSION SERVICE] Session already ${this.currentSession.lifecycleState}, ignoring duplicate request (reason: ${reason})`);
       return;
     }
 
@@ -164,7 +161,7 @@ class SessionService {
         uploaded: false,
       };
 
-      logger.info(`[SESSION SERVICE] Session ended - Session ID: ${sessionToTerminate.sessionId}, Reason: ${reason}, Duration: ${durationSeconds}s (${durationMinutes}m)`);
+      logger.info(`[SESSION] Ended - Duration: ${durationSeconds}s`);
 
       // Save completed session to queue
       await sessionQueueService.addSession(completedSession);
@@ -190,8 +187,6 @@ class SessionService {
     url: string | null,
     title: string | null
   ): Promise<void> {
-    logger.info(`[SESSION SERVICE] Switching session - Tab ID: ${tabId}, URL: ${url}`);
-    
     // End current session
     await this.endSession('tab_switch');
     
@@ -204,12 +199,10 @@ class SessionService {
    */
   async closeSession(tabId: number): Promise<void> {
     if (!this.currentSession) {
-      logger.info('[SESSION SERVICE] No active session to close');
       return;
     }
 
     if (this.currentSession.tabId === tabId) {
-      logger.info(`[SESSION SERVICE] Closing session for tab - Tab ID: ${tabId}`);
       await this.endSession('tab_closed');
     }
   }
@@ -220,7 +213,6 @@ class SessionService {
   async saveCompletedSession(session: WebsiteSession): Promise<void> {
     try {
       await sessionQueueService.addSession(session);
-      logger.info(`[SESSION SERVICE] Saved completed session - Session ID: ${session.sessionId}`);
     } catch (error) {
       logger.error('[SESSION SERVICE] Failed to save completed session', error);
       throw error;
@@ -239,7 +231,6 @@ class SessionService {
    */
   clearCurrentSession(): void {
     if (this.currentSession) {
-      logger.info(`[SESSION SERVICE] Clearing current session - Session ID: ${this.currentSession.sessionId}`);
       this.currentSession = null;
     }
   }
@@ -249,7 +240,6 @@ class SessionService {
    */
   async endAllSessions(): Promise<void> {
     if (this.currentSession) {
-      logger.info('[SESSION SERVICE] Ending all sessions on browser shutdown');
       await this.endSession('browser_shutdown');
     }
   }
