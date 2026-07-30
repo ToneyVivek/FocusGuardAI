@@ -18,6 +18,7 @@ const SESSION_QUEUE_KEY = 'activity_sessions';
  */
 class SessionQueueService {
   private writeLock: Promise<void> = Promise.resolve();
+  private hasWarnedAboutTruncation: boolean = false;
 
   /**
    * Execute a queue write operation with a lock to prevent concurrent writes
@@ -61,7 +62,13 @@ class SessionQueueService {
         // Enforce maximum queue size
         if (queue.length > QUEUE_CONFIG.MAX_SESSION_SIZE) {
           queue.splice(QUEUE_CONFIG.MAX_SESSION_SIZE);
-          logger.warn(`Session queue truncated to ${QUEUE_CONFIG.MAX_SESSION_SIZE} items`);
+          if (!this.hasWarnedAboutTruncation) {
+            logger.warn(`Session queue truncated to ${QUEUE_CONFIG.MAX_SESSION_SIZE} items`);
+            this.hasWarnedAboutTruncation = true;
+          }
+        } else if (queue.length < QUEUE_CONFIG.MAX_SESSION_SIZE * 0.8) {
+          // Reset warning flag when queue drops below 80% of max size
+          this.hasWarnedAboutTruncation = false;
         }
 
         await storageService.set(SESSION_QUEUE_KEY, queue);
@@ -130,6 +137,24 @@ class SessionQueueService {
         await storageService.set(SESSION_QUEUE_KEY, pendingQueue);
       } catch (error) {
         logger.error('[SESSION QUEUE] Failed to remove uploaded sessions', error);
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Remove specific sessions from queue by their IDs
+   * This is more precise than removeUploadedSessions as it only removes items that were successfully uploaded
+   */
+  async removeUploadedSessionsByIds(ids: string[]): Promise<void> {
+    return this.withWriteLock(async () => {
+      try {
+        const queue = await this.getQueue();
+        const filteredQueue = queue.filter(item => !ids.includes(item.id));
+
+        await storageService.set(SESSION_QUEUE_KEY, filteredQueue);
+      } catch (error) {
+        logger.error('[SESSION QUEUE] Failed to remove sessions by IDs', error);
         throw error;
       }
     });

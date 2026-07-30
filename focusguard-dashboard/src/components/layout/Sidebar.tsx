@@ -4,12 +4,13 @@
  */
 import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, BarChart3, Building, User, Settings, LogOut, Loader2 } from 'lucide-react';
+import { LayoutDashboard, BarChart3, Building, User, Settings, LogOut, Loader2, FileText } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 const navItems = [
   { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
   { label: 'Analytics', path: '/analytics', icon: BarChart3 },
+  { label: 'Reports', path: '/reports', icon: FileText },
   { label: 'Organization', path: '/organization', icon: Building },
   { label: 'Profile', path: '/profile', icon: User },
   { label: 'Settings', path: '/settings', icon: Settings },

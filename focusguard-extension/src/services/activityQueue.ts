@@ -20,6 +20,7 @@ const ACTIVITY_QUEUE_KEY = 'activity_queue';
  */
 class ActivityQueueService {
   private writeLock: Promise<void> = Promise.resolve();
+  private hasWarnedAboutTruncation: boolean = false;
 
   /**
    * Execute a queue write operation with a lock to prevent concurrent writes
@@ -101,7 +102,13 @@ class ActivityQueueService {
         // Enforce maximum queue size
         if (queue.length > QUEUE_CONFIG.MAX_ACTIVITY_SIZE) {
           queue.splice(QUEUE_CONFIG.MAX_ACTIVITY_SIZE);
-          logger.warn(`Activity queue truncated to ${QUEUE_CONFIG.MAX_ACTIVITY_SIZE} items`);
+          if (!this.hasWarnedAboutTruncation) {
+            logger.warn(`Activity queue truncated to ${QUEUE_CONFIG.MAX_ACTIVITY_SIZE} items`);
+            this.hasWarnedAboutTruncation = true;
+          }
+        } else if (queue.length < QUEUE_CONFIG.MAX_ACTIVITY_SIZE * 0.8) {
+          // Reset warning flag when queue drops below 80% of max size
+          this.hasWarnedAboutTruncation = false;
         }
 
         await storageService.set(ACTIVITY_QUEUE_KEY, queue);
@@ -170,6 +177,24 @@ class ActivityQueueService {
         await storageService.set(ACTIVITY_QUEUE_KEY, pendingQueue);
       } catch (error) {
         logger.error('Failed to remove uploaded activities', error);
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Remove specific activities from queue by their IDs
+   * This is more precise than removeUploadedActivities as it only removes items that were successfully uploaded
+   */
+  async removeUploadedActivitiesByIds(ids: string[]): Promise<void> {
+    return this.withWriteLock(async () => {
+      try {
+        const queue = await this.getQueue();
+        const filteredQueue = queue.filter(item => !ids.includes(item.id));
+
+        await storageService.set(ACTIVITY_QUEUE_KEY, filteredQueue);
+      } catch (error) {
+        logger.error('Failed to remove activities by IDs', error);
         throw error;
       }
     });

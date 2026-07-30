@@ -28,8 +28,18 @@ const BLOCKED_PATTERNS = [
 const SUPPORTED_PROTOCOLS = ['http://', 'https://'];
 
 /**
+ * Blocked domains (localhost, IP addresses, etc.)
+ */
+const BLOCKED_DOMAINS = [
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  '[::1]',
+];
+
+/**
  * Check if a URL should be tracked
- * Returns false for internal browser URLs, empty URLs, and unsupported protocols
+ * Returns false for internal browser URLs, empty URLs, unsupported protocols, and invalid domains
  */
 export function shouldTrackUrl(url: string | null | undefined): boolean {
   if (!url || url.trim() === '') {
@@ -50,7 +60,55 @@ export function shouldTrackUrl(url: string | null | undefined): boolean {
     lowerUrl.startsWith(protocol.toLowerCase())
   );
 
-  return hasSupportedProtocol;
+  if (!hasSupportedProtocol) {
+    return false;
+  }
+
+  // Extract domain and validate
+  try {
+    const urlObj = new URL(url);
+    const domain = urlObj.hostname.toLowerCase().trim().replace(/\.$/, '');
+
+    // Check against blocked domains
+    if (BLOCKED_DOMAINS.includes(domain)) {
+      return false;
+    }
+
+    // Reject localhost subdomains
+    if (domain.startsWith('localhost.')) {
+      return false;
+    }
+
+    // Reject IP addresses (IPv4)
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(domain)) {
+      return false;
+    }
+
+    // Validate domain format using regex (matches backend validation)
+    // Backend pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$
+    const domainPattern = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
+    if (!domainPattern.test(domain)) {
+      return false;
+    }
+
+    // Reject domains starting/ending with hyphen or with consecutive dots
+    if (domain.startsWith('-') || domain.endsWith('-')) {
+      return false;
+    }
+    if (domain.includes('..')) {
+      return false;
+    }
+
+    // Validate domain length (backend requires 3-255 characters)
+    if (domain.length < 3 || domain.length > 255) {
+      return false;
+    }
+  } catch (error) {
+    // Invalid URL format
+    return false;
+  }
+
+  return true;
 }
 
 /**

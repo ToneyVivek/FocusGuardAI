@@ -18,6 +18,7 @@ const IDLE_QUEUE_KEY = 'idle_sessions';
  */
 class IdleQueueService {
   private writeLock: Promise<void> = Promise.resolve();
+  private hasWarnedAboutTruncation: boolean = false;
 
   /**
    * Execute a queue write operation with a lock to prevent concurrent writes
@@ -88,7 +89,13 @@ class IdleQueueService {
         // Enforce maximum queue size
         if (queue.length > QUEUE_CONFIG.MAX_IDLE_SIZE) {
           queue.splice(QUEUE_CONFIG.MAX_IDLE_SIZE);
-          logger.warn(`Idle queue truncated to ${QUEUE_CONFIG.MAX_IDLE_SIZE} items`);
+          if (!this.hasWarnedAboutTruncation) {
+            logger.warn(`Idle queue truncated to ${QUEUE_CONFIG.MAX_IDLE_SIZE} items`);
+            this.hasWarnedAboutTruncation = true;
+          }
+        } else if (queue.length < QUEUE_CONFIG.MAX_IDLE_SIZE * 0.8) {
+          // Reset warning flag when queue drops below 80% of max size
+          this.hasWarnedAboutTruncation = false;
         }
 
         await storageService.set(IDLE_QUEUE_KEY, queue);
@@ -157,6 +164,24 @@ class IdleQueueService {
         await storageService.set(IDLE_QUEUE_KEY, pendingQueue);
       } catch (error) {
         logger.error('[IDLE QUEUE] Failed to remove uploaded idle sessions', error);
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Remove specific idle sessions from queue by their IDs
+   * This is more precise than removeUploadedSessions as it only removes items that were successfully uploaded
+   */
+  async removeUploadedSessionsByIds(ids: string[]): Promise<void> {
+    return this.withWriteLock(async () => {
+      try {
+        const queue = await this.getQueue();
+        const filteredQueue = queue.filter(item => !ids.includes(item.id));
+
+        await storageService.set(IDLE_QUEUE_KEY, filteredQueue);
+      } catch (error) {
+        logger.error('[IDLE QUEUE] Failed to remove idle sessions by IDs', error);
         throw error;
       }
     });

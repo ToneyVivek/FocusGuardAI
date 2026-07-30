@@ -273,11 +273,16 @@ class SyncService {
       const batches = this.createBatches(pendingSessions, SYNC_CONFIG.BATCH_SIZE);
 
       let successCount = 0;
+      const successfullyUploadedIds: string[] = [];
 
       for (const batch of batches) {
         try {
           await this.uploadBatch(batch);
           successCount += batch.length;
+          // Track successfully uploaded item IDs
+          for (const item of batch) {
+            successfullyUploadedIds.push(item.id);
+          }
         } catch (error) {
           logger.error('[SYNC SERVICE] Browser session batch upload failed', error);
           // Continue with next batch even if this one fails
@@ -285,8 +290,8 @@ class SyncService {
       }
 
       // Remove successfully uploaded sessions
-      if (successCount > 0) {
-        await sessionQueueService.removeUploadedSessions();
+      if (successfullyUploadedIds.length > 0) {
+        await sessionQueueService.removeUploadedSessionsByIds(successfullyUploadedIds);
       }
 
       return successCount;
@@ -311,11 +316,16 @@ class SyncService {
       const batches = this.createBatches(pendingIdleSessions, SYNC_CONFIG.BATCH_SIZE);
 
       let successCount = 0;
+      const successfullyUploadedIds: string[] = [];
 
       for (const batch of batches) {
         try {
           await this.uploadIdleBatch(batch);
           successCount += batch.length;
+          // Track successfully uploaded item IDs
+          for (const item of batch) {
+            successfullyUploadedIds.push(item.id);
+          }
         } catch (error) {
           logger.error('[SYNC SERVICE] Idle session batch upload failed', error);
           // Continue with next batch even if this one fails
@@ -323,8 +333,8 @@ class SyncService {
       }
 
       // Remove successfully uploaded idle sessions
-      if (successCount > 0) {
-        await idleQueueService.removeUploadedSessions();
+      if (successfullyUploadedIds.length > 0) {
+        await idleQueueService.removeUploadedSessionsByIds(successfullyUploadedIds);
       }
 
       return successCount;
@@ -359,8 +369,10 @@ class SyncService {
           const sessionData = this.convertSessionToBackendFormat(item.data);
           validSessions.push(sessionData);
           validItems.push(item);
-        } catch (error) {
-          logger.warn(`[SYNC SERVICE] Skipping invalid session`);
+        } catch (error: any) {
+          logger.warn(
+            `[SYNC SERVICE] Skipping invalid session - URL: ${item.data.url}, Domain: ${item.data.domain}, Title: ${item.data.title || 'N/A'}, Reason: ${error.message}`
+          );
           // Mark invalid sessions as uploaded to remove them from queue
           await sessionQueueService.markAsUploaded(item.id);
         }
@@ -400,8 +412,10 @@ class SyncService {
           const sessionData = this.convertIdleSessionToBackendFormat(item.data);
           validSessions.push(sessionData);
           validItems.push(item);
-        } catch (error) {
-          logger.warn(`[SYNC SERVICE] Skipping invalid idle session`);
+        } catch (error: any) {
+          logger.warn(
+            `[SYNC SERVICE] Skipping invalid idle session - Idle ID: ${item.data.idleId}, Start: ${item.data.startTime}, End: ${item.data.endTime}, Reason: ${error.message}`
+          );
           // Mark invalid sessions as uploaded to remove them from queue
           await idleQueueService.markAsUploaded(item.id);
         }
@@ -465,16 +479,61 @@ class SyncService {
       throw new Error('Session end time must be after start time');
     }
 
+    // Validate domain format to match backend domain_normalization_service
+    // Backend rejects: IP addresses, localhost, invalid formats
+    const domain = session.domain.toLowerCase().trim().replace(/\.$/, '');
+    
+    // Reject IP addresses
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(domain)) {
+      throw new Error(`Invalid domain format: ${session.domain} (IP address not allowed)`);
+    }
+    
+    // Reject localhost
+    if (domain === 'localhost' || domain.startsWith('localhost.')) {
+      throw new Error(`Invalid domain format: ${session.domain} (localhost not allowed)`);
+    }
+    
+    // Reject common internal/invalid domains
+    const invalidDomains = ['127.0.0.1', '0.0.0.0', '[::1]', 'localhost'];
+    if (invalidDomains.includes(domain)) {
+      throw new Error(`Invalid domain format: ${session.domain} (internal address not allowed)`);
+    }
+    
+    // Reject chrome://, chrome-extension://, edge://, about:, file://, devtools://
+    if (session.url.match(/^(chrome|chrome-extension|edge|about|file|devtools):/)) {
+      throw new Error(`Invalid URL protocol: ${session.url}`);
+    }
+    
+    // Validate domain format using regex (matches backend validation)
+    // Backend pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$
+    const domainPattern = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
+    if (!domainPattern.test(domain)) {
+      throw new Error(`Invalid domain format: ${session.domain}`);
+    }
+    
+    // Reject domains starting/ending with hyphen or with consecutive dots
+    if (domain.startsWith('-') || domain.endsWith('-')) {
+      throw new Error(`Invalid domain format: ${session.domain} (cannot start/end with hyphen)`);
+    }
+    if (domain.includes('..')) {
+      throw new Error(`Invalid domain format: ${session.domain} (consecutive dots not allowed)`);
+    }
+    
+    // Validate domain length (backend requires 3-255 characters)
+    if (domain.length < 3 || domain.length > 255) {
+      throw new Error(`Invalid domain length: ${session.domain} (must be 3-255 characters)`);
+    }
+
     // Truncate fields to match backend max_length constraints
     const browserName = 'Chrome'; // Could be dynamic in future
     const url = session.url.substring(0, 2048);
-    const domain = session.domain.substring(0, 255);
+    const normalizedDomain = domain.substring(0, 255);
     const title = session.title ? session.title.substring(0, 500) : null;
 
     return {
       browser_name: browserName,
       website_url: url,
-      website_domain: domain,
+      website_domain: normalizedDomain,
       page_title: title,
       session_start_time: new Date(session.startTime).toISOString(),
       session_end_time: new Date(session.endTime).toISOString(),
@@ -496,11 +555,16 @@ class SyncService {
       const batches = this.createBatches(pendingActivities, SYNC_CONFIG.BATCH_SIZE);
 
       let successCount = 0;
+      const successfullyUploadedIds: string[] = [];
 
       for (const batch of batches) {
         try {
           const uploadedCount = await this.uploadActivityBatch(batch);
           successCount += uploadedCount;
+          // Track successfully uploaded item IDs
+          for (const item of batch) {
+            successfullyUploadedIds.push(item.id);
+          }
         } catch (error) {
           logger.error('[SYNC SERVICE] Activity event batch upload failed', error);
           // Continue with next batch even if this one fails
@@ -508,8 +572,8 @@ class SyncService {
       }
 
       // Remove successfully uploaded activity events
-      if (successCount > 0) {
-        await activityQueueService.removeUploadedActivities();
+      if (successfullyUploadedIds.length > 0) {
+        await activityQueueService.removeUploadedActivitiesByIds(successfullyUploadedIds);
       }
 
       return successCount;
@@ -523,31 +587,31 @@ class SyncService {
    * Upload a batch of activity events to backend
    */
   private async uploadActivityBatch(batch: any[]): Promise<number> {
+    // Convert activity queue items to backend format, filtering out invalid events
+    const validEvents: any[] = [];
+    const validItems: any[] = [];
+
+    for (const item of batch) {
+      try {
+        const eventData = this.convertActivityToBackendFormat(item.data);
+        validEvents.push(eventData);
+        validItems.push(item);
+      } catch (error) {
+        logger.warn(`[SYNC SERVICE] Skipping invalid activity event`);
+        // Mark invalid events as uploaded to remove them from queue
+        await activityQueueService.markAsUploaded(item.id);
+      }
+    }
+
+    if (validEvents.length === 0) {
+      return 0;
+    }
+
+    const payload = {
+      events: validEvents,
+    };
+
     try {
-      // Convert activity queue items to backend format, filtering out invalid events
-      const validEvents: any[] = [];
-      const validItems: any[] = [];
-
-      for (const item of batch) {
-        try {
-          const eventData = this.convertActivityToBackendFormat(item.data);
-          validEvents.push(eventData);
-          validItems.push(item);
-        } catch (error) {
-          logger.warn(`[SYNC SERVICE] Skipping invalid activity event`);
-          // Mark invalid events as uploaded to remove them from queue
-          await activityQueueService.markAsUploaded(item.id);
-        }
-      }
-
-      if (validEvents.length === 0) {
-        return 0;
-      }
-
-      const payload = {
-        events: validEvents,
-      };
-
       await apiClient.post(API_ENDPOINTS.EVENTS_BATCH, payload);
 
       // Mark valid events as uploaded
@@ -557,6 +621,20 @@ class SyncService {
 
       return validEvents.length;
     } catch (error: any) {
+      // Check if error is 409 Conflict (event already exists in database)
+      if (error?.status === 409 || error?.response?.status === 409) {
+        logger.warn('[SYNC SERVICE] Activity batch upload failed with 409 Conflict - Events may already exist in database');
+        // Mark all events in this batch as uploaded since they likely exist in database
+        // This prevents infinite retry of events that were already inserted
+        for (const item of validItems) {
+          try {
+            await activityQueueService.markAsUploaded(item.id);
+          } catch (markError) {
+            logger.error('[SYNC SERVICE] Failed to mark event as uploaded', markError);
+          }
+        }
+        throw error;
+      }
       logger.error('[SYNC SERVICE] Activity batch upload failed', error);
       throw error;
     }
