@@ -132,3 +132,29 @@ export interface NavItem {
   icon?: string;
   roles?: ('ADMIN' | 'EMPLOYEE')[];
 }
+
+// Employee management types
+export interface EmployeeListResponse {
+  employees: User[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface Invitation {
+  id: number;
+  email: string;
+  organization_id: number;
+  invited_by: number;
+  expires_at: string;
+  is_used: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvitationListResponse {
+  invitations: Invitation[];
+  total: number;
+  limit: number;
+  offset: number;
+}

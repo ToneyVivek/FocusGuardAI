@@ -131,3 +131,37 @@ class OnboardingSetup(BaseModel):
     token: str
     full_name: str = Field(..., min_length=2, max_length=100)
     password: str = Field(..., min_length=8, description="Password must be at least 8 characters long")
+
+
+# ----------------- Employee Management Schemas -----------------
+class EmployeeListResponse(BaseModel):
+    """Response schema for employee list with pagination info."""
+    employees: list[UserResponse]
+    total: int
+    limit: int
+    offset: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EmployeeStatusUpdate(BaseModel):
+    """Response schema for employee status toggle."""
+    id: int
+    email: EmailStr
+    full_name: str
+    role: UserRole
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class InvitationListResponse(BaseModel):
+    """Response schema for invitation list with pagination info."""
+    invitations: list[InvitationResponse]
+    total: int
+    limit: int
+    offset: int
+
+    model_config = ConfigDict(from_attributes=True)
