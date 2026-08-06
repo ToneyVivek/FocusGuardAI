@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown } from 'lucide-react';
 import { dashboardService } from '../../services/dashboard';
+import { getPreviousPeriodDates } from '../../utils/dateUtils';
 
 export type ComparisonType = 'week' | 'month';
 
@@ -16,24 +17,6 @@ interface PeriodComparisonProps {
 
 export const PeriodComparison: React.FC<PeriodComparisonProps> = ({ startDate, endDate }) => {
   const [comparisonType, setComparisonType] = useState<ComparisonType>('week');
-
-  // Calculate previous period dates
-  const getPreviousPeriodDates = (_type: ComparisonType, start: string, end: string) => {
-    const currentStart = new Date(start);
-    const currentEnd = new Date(end);
-    const diffDays = Math.floor((currentEnd.getTime() - currentStart.getTime()) / (1000 * 60 * 60 * 24));
-    
-    const prevStart = new Date(currentStart);
-    const prevEnd = new Date(currentEnd);
-    
-    prevStart.setDate(prevStart.getDate() - diffDays - 1);
-    prevEnd.setDate(prevEnd.getDate() - diffDays - 1);
-    
-    return {
-      start_date: prevStart.toISOString().split('T')[0],
-      end_date: prevEnd.toISOString().split('T')[0],
-    };
-  };
 
   const { start_date: prevStart, end_date: prevEnd } = getPreviousPeriodDates(comparisonType, startDate || '', endDate || '');
 

@@ -5,11 +5,13 @@
  */
 import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Legend, CartesianGrid } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { parseToLocalDateString, formatDateShort } from '../../utils/dateUtils';
 import { AlertCircle, TrendingUp } from 'lucide-react';
 import { dashboardService } from '../../services/dashboard';
 import type { DateRange } from './DateRangeFilter';
 import { getDateRangeParams } from './DateRangeFilter';
+import { DEFAULT_TIMELINE_LIMIT } from '../../constants/api';
 import { normalizeProductivity } from '../../utils/productivity';
 
 interface DailyTrendChartProps {
@@ -27,7 +29,7 @@ export const DailyTrendChart: React.FC<DailyTrendChartProps> = ({
 
   const { data: timeline, isLoading, error } = useQuery({
     queryKey: ['analytics', 'timeline', dateRange, customStartDate, customEndDate],
-    queryFn: () => dashboardService.getUserTimeline(500, start_date, end_date),
+    queryFn: () => dashboardService.getUserTimeline(DEFAULT_TIMELINE_LIMIT, start_date, end_date),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
@@ -44,7 +46,7 @@ export const DailyTrendChart: React.FC<DailyTrendChartProps> = ({
     }>();
 
     timeline.items.forEach((item) => {
-      const date = new Date(item.start_time).toISOString().split('T')[0];
+      const date = parseToLocalDateString(item.start_time);
       const existing = dateMap.get(date) || { productive: 0, neutral: 0, non_productive: 0, sessions: 0 };
 
       const productivity = normalizeProductivity(item.productivity);
@@ -64,7 +66,7 @@ export const DailyTrendChart: React.FC<DailyTrendChartProps> = ({
     // Convert to array and sort by date
     const sortedData = Array.from(dateMap.entries())
       .map(([date, values]) => ({
-        date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        date: formatDateShort(date),
         fullDate: date,
         productive: Math.round(values.productive / 60), // Convert to minutes
         neutral: Math.round(values.neutral / 60),

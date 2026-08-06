@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Enum as SQLEnum, ForeignKey, Integer, String, Text, LargeBinary, Index
+from sqlalchemy import Boolean, Column, DateTime, Enum as SQLEnum, ForeignKey, Integer, String, Text, LargeBinary, Index, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -192,4 +192,86 @@ class IdleSession(Base, TimestampMixin):
         Index("idx_idle_sessions_user_time", "user_id", "idle_start_time", "idle_end_time"),
         # Index for organization-level analytics
         Index("idx_idle_sessions_org_time", "organization_id", "idle_start_time"),
+    )
+
+
+class AIReportCache(Base, TimestampMixin):
+    """
+    Cache for AI-generated Daily and Weekly summaries.
+    
+    Stores generated summaries to avoid redundant AI calls when analytics haven't changed.
+    Cache is invalidated automatically when analytics hash, provider, model, or prompt version changes.
+    """
+    __tablename__ = "ai_report_cache"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    report_type = Column(String(20), nullable=False, index=True)  # "daily" or "weekly"
+    start_date = Column(DateTime(timezone=True), nullable=False, index=True)
+    end_date = Column(DateTime(timezone=True), nullable=False, index=True)
+    analytics_hash = Column(String(64), nullable=False, index=True)  # SHA-256 hash of analytics data
+    
+    # Cache versioning fields
+    provider = Column(String(50), nullable=False, index=True)  # "gemini", "grok", "openai"
+    model = Column(String(100), nullable=False, index=True)  # "gemini-flash-latest", etc.
+    prompt_version = Column(String(20), nullable=False, index=True)  # "7.5", etc.
+    
+    # Structured storage
+    raw_llm_response = Column(Text, nullable=False)  # Raw response from LLM
+    parsed_summary = Column(JSON, nullable=False)  # Parsed summary response
+    cache_metadata = Column(JSON, nullable=False)  # Generation metadata
+    
+    generated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+    user = relationship("User", backref="ai_report_cache")
+
+    __table_args__ = (
+        # Composite index for efficient cache lookup
+        Index(
+            "idx_ai_cache_lookup",
+            "user_id",
+            "report_type",
+            "start_date",
+            "end_date",
+            "analytics_hash",
+            "provider",
+            "model",
+            "prompt_version",
+            unique=True
+        ),
+        # Index for cleanup of expired entries
+        Index("idx_ai_cache_expires", "expires_at"),
+    )
+
+
+class AIConversation(Base, TimestampMixin):
+    """
+    AI Chat Conversation persistence.
+    
+    Stores conversation history for AI chat sessions to enable
+    conversation restoration after page refresh.
+    """
+    __tablename__ = "ai_conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    messages = Column(JSON, nullable=False, default=list)  # List of {role, content, timestamp}
+    suggested_questions = Column(JSON, nullable=True)  # List of suggested questions
+    last_message_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    user = relationship("User", backref="ai_conversations")
+
+    __table_args__ = (
+        Index("idx_ai_conversations_user_last_message", "user_id", "last_message_at"),
     )

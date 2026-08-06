@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Clock, AlertCircle } from 'lucide-react';
 import { dashboardService } from '../../services/dashboard';
 import { getProductivityBadgeColor, getProductivityLabel } from '../../utils/productivity';
+import { formatTimeForDisplay } from '../../utils/dateUtils';
 
 export const RecentActivity: React.FC = () => {
   const { data: timeline, isLoading, error } = useQuery({
@@ -44,11 +45,7 @@ export const RecentActivity: React.FC = () => {
 
   // Format time
   const formatTime = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return formatTimeForDisplay(dateString);
   };
 
   if (isLoading) {

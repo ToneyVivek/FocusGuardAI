@@ -19,6 +19,7 @@ import { useQuery } from '@tanstack/react-query';
 import { dashboardService } from '../../services/dashboard';
 import { exportTimelineToCSV, exportCategoriesToCSV, exportDomainsToCSV, exportSummaryToCSV } from '../../utils/export';
 import { useAuth } from '../../contexts/AuthContext';
+import { DEFAULT_TIMELINE_LIMIT, DEFAULT_DOMAINS_LIMIT } from '../../constants/api';
 
 export const ReportsPage: React.FC = () => {
   const [reportType, setReportType] = useState<ReportType>('weekly');
@@ -50,14 +51,14 @@ export const ReportsPage: React.FC = () => {
 
   const { data: domains } = useQuery({
     queryKey: ['report', 'domains', start_date, end_date],
-    queryFn: () => dashboardService.getUserDomains(100, start_date, end_date),
+    queryFn: () => dashboardService.getUserDomains(DEFAULT_DOMAINS_LIMIT, start_date, end_date),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 
   const { data: timeline } = useQuery({
     queryKey: ['report', 'timeline', start_date, end_date],
-    queryFn: () => dashboardService.getUserTimeline(1000, start_date, end_date),
+    queryFn: () => dashboardService.getUserTimeline(DEFAULT_TIMELINE_LIMIT, start_date, end_date),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });

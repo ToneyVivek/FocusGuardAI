@@ -4,6 +4,7 @@
  */
 import React from 'react';
 import { Calendar, ChevronDown } from 'lucide-react';
+import { getDateRangeParams } from '../../utils/dateUtils';
 
 export type DateRange = 'today' | 'yesterday' | 'last7days' | 'last30days' | 'thisMonth' | 'custom';
 
@@ -86,64 +87,5 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
   );
 };
 
-/**
- * Get start and end dates for a given date range
- */
-export function getDateRangeParams(range: DateRange, customStart?: string, customEnd?: string): { start_date?: string; end_date?: string } {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const formatDate = (date: Date) => date.toISOString().split('T')[0];
-
-  switch (range) {
-    case 'today':
-      return {
-        start_date: formatDate(today),
-        end_date: formatDate(today),
-      };
-
-    case 'yesterday': {
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      return {
-        start_date: formatDate(yesterday),
-        end_date: formatDate(yesterday),
-      };
-    }
-
-    case 'last7days': {
-      const start = new Date(today);
-      start.setDate(start.getDate() - 6);
-      return {
-        start_date: formatDate(start),
-        end_date: formatDate(today),
-      };
-    }
-
-    case 'last30days': {
-      const start = new Date(today);
-      start.setDate(start.getDate() - 29);
-      return {
-        start_date: formatDate(start),
-        end_date: formatDate(today),
-      };
-    }
-
-    case 'thisMonth': {
-      const start = new Date(today.getFullYear(), today.getMonth(), 1);
-      return {
-        start_date: formatDate(start),
-        end_date: formatDate(today),
-      };
-    }
-
-    case 'custom':
-      return {
-        start_date: customStart,
-        end_date: customEnd,
-      };
-
-    default:
-      return {};
-  }
-}
+// Re-export getDateRangeParams from dateUtils for convenience
+export { getDateRangeParams };

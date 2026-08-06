@@ -5,11 +5,13 @@
  */
 import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, LabelList } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
+import { parseToLocalDateString, formatDateShort } from '../../utils/dateUtils';
 import { AlertCircle, Activity } from 'lucide-react';
 import { dashboardService } from '../../services/dashboard';
 import type { DateRange } from './DateRangeFilter';
 import { getDateRangeParams } from './DateRangeFilter';
+import { DEFAULT_TIMELINE_LIMIT } from '../../constants/api';
 
 interface BrowsingSessionsChartProps {
   dateRange: DateRange;
@@ -26,7 +28,7 @@ export const BrowsingSessionsChart: React.FC<BrowsingSessionsChartProps> = ({
 
   const { data: timeline, isLoading, error } = useQuery({
     queryKey: ['analytics', 'timeline', dateRange, customStartDate, customEndDate],
-    queryFn: () => dashboardService.getUserTimeline(500, start_date, end_date),
+    queryFn: () => dashboardService.getUserTimeline(DEFAULT_TIMELINE_LIMIT, start_date, end_date),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
@@ -38,14 +40,14 @@ export const BrowsingSessionsChart: React.FC<BrowsingSessionsChartProps> = ({
     const dateMap = new Map<string, number>();
 
     timeline.items.forEach((item) => {
-      const date = new Date(item.start_time).toISOString().split('T')[0];
+      const date = parseToLocalDateString(item.start_time);
       dateMap.set(date, (dateMap.get(date) || 0) + 1);
     });
 
     // Convert to array and sort by date
     const sortedData = Array.from(dateMap.entries())
       .map(([date, sessions]) => ({
-        date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        date: formatDateShort(date),
         fullDate: date,
         sessions,
       }))

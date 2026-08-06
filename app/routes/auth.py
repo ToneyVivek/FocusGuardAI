@@ -46,22 +46,27 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     Returns both access token (short-lived) and refresh token (long-lived, 7 days).
     Use refresh token to obtain new access tokens without re-authentication.
     """
+    print(f"[AUTH] Login attempt - email: {form_data.username}")
     user = authenticate_user(db, email=form_data.username, password=form_data.password)
     if not user:
+        print(f"[AUTH] Login failed - user not found or invalid password for email: {form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    print(f"[AUTH] User authenticated - user_id: {user.id}, email: {user.email}")
     access_token = create_access_token(
         subject=user.email,
         role=user.role,
         user_id=user.id,
     )
+    print(f"[AUTH] Access token created - token_length: {len(access_token)}")
     
     # Create refresh token
     refresh_token = refresh_token_service.create_refresh_token(db, user)
+    print(f"[AUTH] Refresh token created")
 
     return {
         "access_token": access_token,

@@ -3,7 +3,8 @@
  * Displays and manages report history using localStorage
  */
 import React, { useState, useEffect } from 'react';
-import { History, Trash2, Download, Calendar, Clock } from 'lucide-react';
+import { Calendar, Clock, History, Download, Trash2 } from 'lucide-react';
+import { formatDateForDisplay, getCurrentTimestamp } from '../../utils/dateUtils';
 
 interface SavedReport {
   id: string;
@@ -53,13 +54,7 @@ export const ReportHistory: React.FC = () => {
   };
 
   const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return formatDateForDisplay(dateString);
   };
 
   return (
@@ -161,7 +156,7 @@ export function saveReportToHistory(
       reportType,
       startDate,
       endDate,
-      generatedAt: new Date().toISOString(),
+      generatedAt: getCurrentTimestamp(),
       summary,
     };
 

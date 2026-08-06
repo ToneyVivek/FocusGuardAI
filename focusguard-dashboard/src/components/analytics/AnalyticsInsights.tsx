@@ -9,6 +9,7 @@ import { dashboardService } from '../../services/dashboard';
 import type { DateRange } from './DateRangeFilter';
 import { getDateRangeParams } from './DateRangeFilter';
 import { normalizeProductivity } from '../../utils/productivity';
+import { DEFAULT_TIMELINE_LIMIT } from '../../constants/api';
 
 interface AnalyticsInsightsProps {
   dateRange: DateRange;
@@ -54,7 +55,7 @@ export const AnalyticsInsights: React.FC<AnalyticsInsightsProps> = ({
 
   const { data: timeline } = useQuery({
     queryKey: ['analytics', 'timeline', dateRange, customStartDate, customEndDate],
-    queryFn: () => dashboardService.getUserTimeline(500, start_date, end_date),
+    queryFn: () => dashboardService.getUserTimeline(DEFAULT_TIMELINE_LIMIT, start_date, end_date),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });

@@ -9,6 +9,8 @@ import { dashboardService } from '../../services/dashboard';
 import type { DateRange } from './DateRangeFilter';
 import { getDateRangeParams } from './DateRangeFilter';
 import { getProductivityBadgeColor, getProductivityLabel } from '../../utils/productivity';
+import { formatDateTimeForDisplay } from '../../utils/dateUtils';
+import { DEFAULT_TIMELINE_LIMIT } from '../../constants/api';
 
 interface AnalyticsTimelineProps {
   dateRange: DateRange;
@@ -29,7 +31,7 @@ export const AnalyticsTimeline: React.FC<AnalyticsTimelineProps> = ({
 
   const { data: timeline, isLoading, error } = useQuery({
     queryKey: ['analytics', 'timeline', dateRange, customStartDate, customEndDate],
-    queryFn: () => dashboardService.getUserTimeline(500, start_date, end_date),
+    queryFn: () => dashboardService.getUserTimeline(DEFAULT_TIMELINE_LIMIT, start_date, end_date),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
@@ -63,13 +65,7 @@ export const AnalyticsTimeline: React.FC<AnalyticsTimelineProps> = ({
   };
 
   const formatTime = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return formatDateTimeForDisplay(dateString);
   };
 
   const getFaviconUrl = (domain: string): string => {

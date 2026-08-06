@@ -15,9 +15,10 @@ import { ProfilePage } from '../pages/Profile';
 import { SettingsPage } from '../pages/Settings';
 import { NotFoundPage } from '../pages/NotFound';
 
-// Lazy load Analytics and Reports pages to reduce bundle size
+// Lazy load Analytics, Reports, and AI pages to reduce bundle size
 const AnalyticsPage = lazy(() => import('../pages/Analytics').then(m => ({ default: m.AnalyticsPage })));
 const ReportsPage = lazy(() => import('../pages/Reports').then(m => ({ default: m.ReportsPage })));
+const AIPage = lazy(() => import('../pages/AI').then(m => ({ default: m.AIPage })));
 
 const AnalyticsPageWrapper = () => (
   <Suspense fallback={<div className="p-8 text-center text-gray-500">Loading Analytics...</div>}>
@@ -28,6 +29,12 @@ const AnalyticsPageWrapper = () => (
 const ReportsPageWrapper = () => (
   <Suspense fallback={<div className="p-8 text-center text-gray-500">Loading Reports...</div>}>
     <ReportsPage />
+  </Suspense>
+);
+
+const AIPageWrapper = () => (
+  <Suspense fallback={<div className="p-8 text-center text-gray-500">Loading AI Coach...</div>}>
+    <AIPage />
   </Suspense>
 );
 
@@ -63,6 +70,10 @@ export const router = createBrowserRouter([
       {
         path: 'reports',
         element: <ReportsPageWrapper />,
+      },
+      {
+        path: 'ai',
+        element: <AIPageWrapper />,
       },
       {
         path: 'organization',

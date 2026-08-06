@@ -4,16 +4,12 @@
  */
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { formatDateForDisplay } from '../../utils/dateUtils';
 
 export const DashboardHeader: React.FC = () => {
   const { user } = useAuth();
   
-  const currentDate = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+  const currentDate = formatDateForDisplay(new Date().toISOString());
 
   return (
     <div className="mb-8">

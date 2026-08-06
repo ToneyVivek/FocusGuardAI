@@ -3,6 +3,7 @@
  * Selects report type (Daily, Weekly, Monthly, Custom)
  */
 import React from 'react';
+import { getReportDateRange } from '../../utils/dateUtils';
 
 export type ReportType = 'daily' | 'weekly' | 'monthly' | 'custom';
 
@@ -39,56 +40,5 @@ export const ReportTypeSelector: React.FC<ReportTypeSelectorProps> = ({ value, o
   );
 };
 
-/**
- * Get date range for a report type
- */
-export function getReportDateRange(type: ReportType): { start_date: string; end_date: string } {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const formatDate = (date: Date) => date.toISOString().split('T')[0];
-
-  switch (type) {
-    case 'daily': {
-      return {
-        start_date: formatDate(today),
-        end_date: formatDate(today),
-      };
-    }
-
-    case 'weekly': {
-      const start = new Date(today);
-      const dayOfWeek = start.getDay();
-      const diff = start.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-      start.setDate(diff);
-      return {
-        start_date: formatDate(start),
-        end_date: formatDate(today),
-      };
-    }
-
-    case 'monthly': {
-      const start = new Date(today.getFullYear(), today.getMonth(), 1);
-      return {
-        start_date: formatDate(start),
-        end_date: formatDate(today),
-      };
-    }
-
-    case 'custom': {
-      // Default to last 30 days for custom
-      const start = new Date(today);
-      start.setDate(start.getDate() - 29);
-      return {
-        start_date: formatDate(start),
-        end_date: formatDate(today),
-      };
-    }
-
-    default:
-      return {
-        start_date: formatDate(today),
-        end_date: formatDate(today),
-      };
-  }
-}
+// Re-export getReportDateRange from dateUtils for convenience
+export { getReportDateRange };

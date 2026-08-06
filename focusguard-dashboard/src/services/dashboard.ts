@@ -11,6 +11,7 @@ import type {
   DomainBreakdown,
   CategoryBreakdown
 } from '../types/dashboard';
+import { DEFAULT_TIMELINE_LIMIT, DEFAULT_DOMAINS_LIMIT } from '../constants/api';
 
 export const dashboardService = {
   /**
@@ -58,7 +59,7 @@ export const dashboardService = {
   /**
    * Get user domain breakdown (top websites)
    */
-  getUserDomains: async (limit: number = 5, startDate?: string, endDate?: string): Promise<DomainBreakdown> => {
+  getUserDomains: async (limit: number = DEFAULT_DOMAINS_LIMIT, startDate?: string, endDate?: string): Promise<DomainBreakdown> => {
     const params = new URLSearchParams();
     params.append('limit', limit.toString());
     if (startDate) params.append('start_date', startDate);
@@ -73,7 +74,7 @@ export const dashboardService = {
   /**
    * Get user timeline (recent activity)
    */
-  getUserTimeline: async (limit: number = 10, startDate?: string, endDate?: string): Promise<Timeline> => {
+  getUserTimeline: async (limit: number = DEFAULT_TIMELINE_LIMIT, startDate?: string, endDate?: string): Promise<Timeline> => {
     const params = new URLSearchParams();
     params.append('limit', limit.toString());
     if (startDate) params.append('start_date', startDate);

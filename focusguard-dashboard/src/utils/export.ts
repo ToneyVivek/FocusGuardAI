@@ -77,6 +77,7 @@ export function exportToCSV(data: any[], filename: string) {
 
 /**
  * Export timeline data to CSV
+ * Note: ISO format is used for timestamps in CSV exports (standard practice)
  */
 export function exportTimelineToCSV(timeline: any[], filename: string) {
   const csvData = timeline.map(item => ({
