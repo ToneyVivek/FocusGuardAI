@@ -282,6 +282,9 @@ class UnifiedTimelineItem(BaseModel):
     website_category: Optional[WebsiteCategory] = None
     productivity_classification: Optional[ProductivityClassification] = None
     username: Optional[str] = None
+    # Employee information (from User table)
+    employee_name: Optional[str] = Field(None, description="Employee full name from User table")
+    employee_email: Optional[str] = Field(None, description="Employee email from User table")
     # Idle session specific fields (optional)
     idle_start_time: Optional[datetime] = None
     idle_end_time: Optional[datetime] = None
@@ -305,7 +308,9 @@ class UnifiedTimelineItem(BaseModel):
                 "page_title": "GitHub Repository",
                 "website_category": "DEVELOPMENT",
                 "productivity_classification": "PRODUCTIVE",
-                "username": "Jane Doe",
+                "username": "jdoe",
+                "employee_name": "John Doe",
+                "employee_email": "john@example.com",
                 "idle_start_time": None,
                 "idle_end_time": None,
             }

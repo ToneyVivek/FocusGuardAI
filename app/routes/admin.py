@@ -1,9 +1,11 @@
 from typing import Optional
+from datetime import date
 from fastapi import APIRouter, BackgroundTasks, Depends, status, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.dependencies.deps import get_current_admin_with_org, get_db
-from app.models.models import User, Invitation
+from app.models.models import User, Invitation, AIReportCache
 from app.schemas.schemas import (
     InvitationCreate, 
     InvitationResponse, 
@@ -21,6 +23,7 @@ from app.services.employee import (
     get_pending_invitations,
     resend_invitation,
 )
+from app.services.pdf_report_service import generate_employee_report_pdf
 
 router = APIRouter(prefix="/admin", tags=["Admin Operations"])
 
@@ -214,3 +217,193 @@ def resend_invitation_endpoint(
         background_tasks=background_tasks,
     )
     return InvitationResponse.model_validate(invitation)
+
+
+@router.get("/organization/reports")
+def list_organization_reports(
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_with_org),
+):
+    """
+    List all AI-generated reports for the organization.
+    Returns cached reports with user information.
+    Only accessible by ADMIN users.
+    """
+    if current_admin.organization_id is None:
+        return []
+    
+    # Get all users in the organization
+    user_ids = (
+        db.query(User.id)
+        .filter(User.organization_id == current_admin.organization_id)
+        .all()
+    )
+    user_id_list = [uid[0] for uid in user_ids]
+    
+    # Get all cached reports for these users
+    reports = (
+        db.query(AIReportCache, User)
+        .join(User, AIReportCache.user_id == User.id)
+        .filter(AIReportCache.user_id.in_(user_id_list))
+        .order_by(AIReportCache.created_at.desc())
+        .all()
+    )
+    
+    result = []
+    for report, user in reports:
+        result.append({
+            "id": report.id,
+            "user_id": report.user_id,
+            "report_type": report.report_type,
+            "start_date": report.start_date.isoformat(),
+            "end_date": report.end_date.isoformat(),
+            "created_at": report.created_at.isoformat(),
+            "user": {
+                "id": user.id,
+                "full_name": user.full_name,
+                "email": user.email,
+            }
+        })
+    
+    return result
+
+
+@router.get("/employee/{employee_id}/reports")
+def list_employee_reports(
+    employee_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_with_org),
+):
+    """
+    List all AI-generated reports for a specific employee.
+    Only accessible by ADMIN users in the same organization.
+    """
+    if current_admin.organization_id is None:
+        return []
+    
+    # Verify the employee belongs to the same organization
+    employee = db.query(User).filter(
+        User.id == employee_id,
+        User.organization_id == current_admin.organization_id
+    ).first()
+    
+    if not employee:
+        return []
+    
+    # Get all cached reports for this employee
+    reports = (
+        db.query(AIReportCache)
+        .filter(AIReportCache.user_id == employee_id)
+        .order_by(AIReportCache.created_at.desc())
+        .all()
+    )
+    
+    result = []
+    for report in reports:
+        result.append({
+            "id": report.id,
+            "user_id": report.user_id,
+            "report_type": report.report_type,
+            "start_date": report.start_date.isoformat(),
+            "end_date": report.end_date.isoformat(),
+            "created_at": report.created_at.isoformat(),
+        })
+    
+    return result
+
+
+@router.get("/employee/{employee_id}/report/pdf")
+def download_employee_report_pdf(
+    employee_id: int,
+    start_date: date = Query(..., description="Report start date"),
+    end_date: date = Query(..., description="Report end date"),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_with_org),
+):
+    """
+    Generate and download a PDF report for an employee's productivity analytics.
+    Only accessible by ADMIN users in the same organization.
+    """
+    if current_admin.organization_id is None:
+        return None
+    
+    # Prevent PDF generation for incomplete "Today" reports
+    from datetime import datetime
+    today = date.today()
+    if start_date == today and end_date == today:
+        return Response(
+            content='{"error": "Today\'s report is still being generated. Please download the report tomorrow or choose another completed date range."}',
+            media_type="application/json",
+            status_code=400
+        )
+    
+    # Verify the employee belongs to the same organization
+    employee = db.query(User).filter(
+        User.id == employee_id,
+        User.organization_id == current_admin.organization_id
+    ).first()
+    
+    if not employee:
+        return None
+    
+    # Generate PDF
+    pdf_buffer = generate_employee_report_pdf(db, employee, start_date, end_date)
+    
+    # Return PDF as response
+    return Response(
+        content=pdf_buffer.getvalue(),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=productivity_report_{employee.full_name.replace(' ', '_')}_{start_date}_to_{end_date}.pdf"
+        }
+    )
+
+
+@router.get("/employee/{employee_id}")
+def get_employee_profile(
+    employee_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_with_org),
+):
+    """
+    Get detailed profile information for a specific employee.
+    Only accessible by ADMIN users in the same organization.
+    """
+    if current_admin.organization_id is None:
+        return None
+    
+    # Verify the employee belongs to the same organization
+    employee = db.query(User).filter(
+        User.id == employee_id,
+        User.organization_id == current_admin.organization_id
+    ).first()
+    
+    if not employee:
+        return None
+    
+    from app.models.models import Organization
+    
+    # Get organization details
+    organization = db.query(Organization).filter(
+        Organization.id == employee.organization_id
+    ).first()
+    
+    # Note: BrowserActivity and ActivityEvent models don't exist in the current codebase
+    # Last activity calculation will be implemented when these models are available
+    last_activity = None
+    
+    return {
+        "id": employee.id,
+        "email": employee.email,
+        "full_name": employee.full_name,
+        "role": employee.role,
+        "is_active": employee.is_active,
+        "created_at": employee.created_at.isoformat(),
+        "updated_at": employee.updated_at.isoformat(),
+        "last_activity": last_activity,
+        "organization_id": employee.organization_id,
+        "organization": {
+            "id": organization.id if organization else None,
+            "name": organization.name if organization else None,
+        } if organization else None,
+    }

@@ -4,17 +4,22 @@
  */
 import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, BarChart3, Building, User, Settings, LogOut, Loader2, FileText, Bot } from 'lucide-react';
+import { LayoutDashboard, BarChart3 as BarChartIcon, Building, User, Settings, LogOut, Loader2, FileText, Bot, TrendingUp } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 const navItems = [
   { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-  { label: 'Analytics', path: '/analytics', icon: BarChart3 },
+  { label: 'Analytics', path: '/analytics', icon: BarChartIcon },
   { label: 'Reports', path: '/reports', icon: FileText },
   { label: 'AI Coach', path: '/ai', icon: Bot },
-  { label: 'Organization', path: '/organization', icon: Building },
   { label: 'Profile', path: '/profile', icon: User },
   { label: 'Settings', path: '/settings', icon: Settings },
+];
+
+const adminNavItems = [
+  { label: 'Organization Dashboard', path: '/organization-dashboard', icon: TrendingUp },
+  { label: 'Organization', path: '/organization', icon: Building },
+  { label: 'Organization Reports', path: '/organization-reports', icon: FileText },
 ];
 
 export const Sidebar: React.FC = () => {
@@ -67,6 +72,33 @@ export const Sidebar: React.FC = () => {
               </li>
             );
           })}
+          {user?.role === 'ADMIN' && (
+            <>
+              <li className="pt-4 pb-2">
+                <span className="text-xs text-gray-500 uppercase tracking-wider px-4">Admin</span>
+              </li>
+              {adminNavItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <li key={item.path}>
+                    <NavLink
+                      to={item.path}
+                      className={({ isActive }) =>
+                        `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                          isActive
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                        }`
+                      }
+                    >
+                      <Icon size={20} />
+                      <span>{item.label}</span>
+                    </NavLink>
+                  </li>
+                );
+              })}
+            </>
+          )}
         </ul>
       </nav>
 

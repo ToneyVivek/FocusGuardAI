@@ -11,6 +11,9 @@ import { lazy, Suspense } from 'react';
 import { LoginPage } from '../pages/Login';
 import { DashboardPage } from '../pages/Dashboard';
 import { OrganizationPage } from '../pages/Organization';
+import { OrganizationDashboardPage } from '../pages/OrganizationDashboard';
+import { OrganizationReportsPage } from '../pages/OrganizationReports';
+import { EmployeeProfilePage } from '../pages/EmployeeProfile';
 import { ProfilePage } from '../pages/Profile';
 import { SettingsPage } from '../pages/Settings';
 import { NotFoundPage } from '../pages/NotFound';
@@ -80,6 +83,30 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute requiereRoles={['ADMIN']}>
             <OrganizationPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'organization-dashboard',
+        element: (
+          <ProtectedRoute requiereRoles={['ADMIN']}>
+            <OrganizationDashboardPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'organization-reports',
+        element: (
+          <ProtectedRoute requiereRoles={['ADMIN']}>
+            <OrganizationReportsPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'employee-profile/:employeeId',
+        element: (
+          <ProtectedRoute requiereRoles={['ADMIN']}>
+            <EmployeeProfilePage />
           </ProtectedRoute>
         ),
       },

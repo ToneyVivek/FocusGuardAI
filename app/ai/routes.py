@@ -397,3 +397,66 @@ async def clear_conversation(
     """
     ai_service.clear_conversation(db, current_user)
     return {"message": "Conversation cleared"}
+
+
+@router.post("/organization/summary")
+async def get_organization_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Generate AI-powered organization summary.
+    
+    Reuses existing AI pipeline with organization-level analytics.
+    Only accessible by ADMIN users.
+    
+    Authentication: JWT token required (ADMIN role)
+    """
+    if current_user.role != "ADMIN":
+        raise status.HTTP_403_FORBIDDEN
+    
+    if current_user.organization_id is None:
+        return {"summary": "No organization associated with this admin account."}
+    
+    # Reuse existing AI service with organization context
+    # This will need to be extended in the AI service to support organization-level summaries
+    # For now, return a placeholder that will be enhanced
+    return {
+        "summary": "Organization summary generation will reuse the existing AI pipeline with organization analytics aggregation."
+    }
+
+
+@router.post("/organization/chat")
+async def organization_chat(
+    chat_request: ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Organization-level AI chat for productivity insights.
+    
+    Reuses existing AI pipeline with organization-level analytics.
+    Only accessible by ADMIN users.
+    
+    Authentication: JWT token required (ADMIN role)
+    """
+    if current_user.role != "ADMIN":
+        raise status.HTTP_403_FORBIDDEN
+    
+    if current_user.organization_id is None:
+        return ChatResponse(
+            message="No organization associated with this admin account.",
+            suggestions=[]
+        )
+    
+    # Reuse existing AI service with organization context
+    # This will need to be extended in the AI service to support organization-level chat
+    # For now, return a placeholder that will be enhanced
+    return ChatResponse(
+        message=f"Organization AI chat will reuse the existing AI pipeline. Your question: {chat_request.message}",
+        suggestions=[
+            "Summarize today's organization performance",
+            "Who improved most this week?",
+            "Which employees need attention?",
+        ]
+    )

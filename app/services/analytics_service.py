@@ -729,6 +729,7 @@ def get_organization_unified_timeline(
     
     Only accessible by admins. Returns all activities and idle sessions across the organization.
     Each item includes a 'type' field to distinguish between 'activity' and 'idle'.
+    Includes employee information from User table.
     
     Args:
         db: Database session
@@ -744,9 +745,10 @@ def get_organization_unified_timeline(
     if user.organization_id is None:
         return []
     
-    # Query browser activities for organization
+    # Query browser activities for organization with User join
     browser_query = (
-        db.query(BrowserActivity)
+        db.query(BrowserActivity, User)
+        .join(User, BrowserActivity.user_id == User.id)
         .filter(BrowserActivity.organization_id == user.organization_id)
     )
     
@@ -755,9 +757,10 @@ def get_organization_unified_timeline(
     
     browser_activities = browser_query.all()
     
-    # Query idle sessions for organization
+    # Query idle sessions for organization with User join
     idle_query = (
-        db.query(IdleSession)
+        db.query(IdleSession, User)
+        .join(User, IdleSession.user_id == User.id)
         .filter(IdleSession.organization_id == user.organization_id)
     )
     
@@ -769,7 +772,7 @@ def get_organization_unified_timeline(
     # Convert to unified timeline items
     timeline_items = []
     
-    for activity in browser_activities:
+    for activity, user_obj in browser_activities:
         timeline_items.append(UnifiedTimelineItem(
             type="activity",
             id=activity.id,
@@ -787,9 +790,11 @@ def get_organization_unified_timeline(
             website_category=activity.website_category,
             productivity_classification=activity.productivity_classification,
             username=activity.username,
+            employee_name=user_obj.full_name if user_obj else None,
+            employee_email=user_obj.email if user_obj else None,
         ))
     
-    for session in idle_sessions:
+    for session, user_obj in idle_sessions:
         timeline_items.append(UnifiedTimelineItem(
             type="idle",
             id=session.id,
@@ -800,8 +805,8 @@ def get_organization_unified_timeline(
             duration_seconds=session.duration_seconds,
             created_at=session.created_at,
             updated_at=session.updated_at,
-            idle_start_time=session.idle_start_time,
-            idle_end_time=session.idle_end_time,
+            employee_name=user_obj.full_name if user_obj else None,
+            employee_email=user_obj.email if user_obj else None,
         ))
     
     # Sort by start time descending

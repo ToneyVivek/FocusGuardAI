@@ -705,3 +705,177 @@ def _parse_date_filter(start_date: Optional[str], end_date: Optional[str]) -> tu
     
     return parsed_start, parsed_end
 
+
+# Employee-Specific Analytics Endpoints (for Admins)
+
+
+@router.get("/user/{user_id}/summary", response_model=UserSummaryResponseV2)
+@limiter.limit("60/minute")
+def get_user_summary_for_admin(
+    request: Request,
+    user_id: int,
+    start_date: Optional[str] = Query(default=None, description="Filter from this date (ISO-8601 format: YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="Filter until this date (ISO-8601 format: YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """
+    Get analytics summary for a specific employee (for admins).
+    
+    Returns summary metrics, productivity breakdown, category breakdown,
+    domain breakdown, and focus score for the specified employee.
+    
+    Authentication: JWT token required (Bearer token)
+    Authorization: ADMIN role required
+    Organization: Employee must belong to admin's organization
+    Rate Limiting: 60 requests per minute per IP
+    """
+    if current_admin.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin must belong to an organization."
+        )
+    
+    # Verify the employee belongs to the same organization
+    employee = db.query(User).filter(
+        User.id == user_id,
+        User.organization_id == current_admin.organization_id
+    ).first()
+    
+    if not employee:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found or does not belong to your organization."
+        )
+    
+    parsed_start, parsed_end = _parse_date_filter(start_date, end_date)
+    return new_get_user_summary(db, employee, parsed_start, parsed_end)
+
+
+@router.get("/user/{user_id}/categories", response_model=CategoryBreakdown)
+@limiter.limit("60/minute")
+def get_user_categories_for_admin(
+    request: Request,
+    user_id: int,
+    start_date: Optional[str] = Query(default=None, description="Filter from this date (ISO-8601 format: YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="Filter until this date (ISO-8601 format: YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """
+    Get category breakdown for a specific employee (for admins).
+    
+    Returns website categories with duration, percentage, and session count.
+    
+    Authentication: JWT token required (Bearer token)
+    Authorization: ADMIN role required
+    Organization: Employee must belong to admin's organization
+    Rate Limiting: 60 requests per minute per IP
+    """
+    if current_admin.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin must belong to an organization."
+        )
+    
+    # Verify the employee belongs to the same organization
+    employee = db.query(User).filter(
+        User.id == user_id,
+        User.organization_id == current_admin.organization_id
+    ).first()
+    
+    if not employee:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found or does not belong to your organization."
+        )
+    
+    parsed_start, parsed_end = _parse_date_filter(start_date, end_date)
+    return get_user_category_breakdown(db, employee, parsed_start, parsed_end)
+
+
+@router.get("/user/{user_id}/domains", response_model=DomainBreakdown)
+@limiter.limit("60/minute")
+def get_user_domains_for_admin(
+    request: Request,
+    user_id: int,
+    limit: int = Query(default=10, ge=1, le=50, description="Maximum number of domains to return"),
+    start_date: Optional[str] = Query(default=None, description="Filter from this date (ISO-8601 format: YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="Filter until this date (ISO-8601 format: YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """
+    Get domain breakdown for a specific employee (for admins).
+    
+    Returns most used domains with duration and session count.
+    
+    Authentication: JWT token required (Bearer token)
+    Authorization: ADMIN role required
+    Organization: Employee must belong to admin's organization
+    Rate Limiting: 60 requests per minute per IP
+    """
+    if current_admin.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin must belong to an organization."
+        )
+    
+    # Verify the employee belongs to the same organization
+    employee = db.query(User).filter(
+        User.id == user_id,
+        User.organization_id == current_admin.organization_id
+    ).first()
+    
+    if not employee:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found or does not belong to your organization."
+        )
+    
+    parsed_start, parsed_end = _parse_date_filter(start_date, end_date)
+    return get_user_domain_breakdown(db, employee, parsed_start, parsed_end, limit)
+
+
+@router.get("/user/{user_id}/timeline", response_model=Timeline)
+@limiter.limit("60/minute")
+def get_user_timeline_for_admin(
+    request: Request,
+    user_id: int,
+    limit: int = Query(default=100, ge=1, le=500, description="Maximum number of records to return"),
+    start_date: Optional[str] = Query(default=None, description="Filter from this date (ISO-8601 format: YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="Filter until this date (ISO-8601 format: YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """
+    Get timeline for a specific employee (for admins).
+    
+    Returns chronological browser activity sessions suitable for charts.
+    
+    Authentication: JWT token required (Bearer token)
+    Authorization: ADMIN role required
+    Organization: Employee must belong to admin's organization
+    Rate Limiting: 60 requests per minute per IP
+    """
+    if current_admin.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin must belong to an organization."
+        )
+    
+    # Verify the employee belongs to the same organization
+    employee = db.query(User).filter(
+        User.id == user_id,
+        User.organization_id == current_admin.organization_id
+    ).first()
+    
+    if not employee:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found or does not belong to your organization."
+        )
+    
+    parsed_start, parsed_end = _parse_date_filter(start_date, end_date)
+    return get_user_timeline(db, employee, parsed_start, parsed_end, limit)
+

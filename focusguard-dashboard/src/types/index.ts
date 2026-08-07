@@ -158,3 +158,57 @@ export interface InvitationListResponse {
   limit: number;
   offset: number;
 }
+
+// Organization Dashboard types
+export interface OrganizationSummaryMetrics {
+  total_focus_time: number;
+  productive_time: number;
+  neutral_time: number;
+  non_productive_time: number;
+  idle_time: number;
+  completed_sessions: number;
+  idle_sessions: number;
+  activity_events: number;
+}
+
+export interface OrganizationProductivityBreakdown {
+  productive: { duration_seconds: number; percentage: number };
+  neutral: { duration_seconds: number; percentage: number };
+  non_productive: { duration_seconds: number; percentage: number };
+}
+
+export interface OrganizationSummaryResponse {
+  metrics: OrganizationSummaryMetrics;
+  productivity: OrganizationProductivityBreakdown;
+  categories: { categories: Array<{ category: string; duration_seconds: number; percentage: number; session_count: number }> };
+  domains: { domains: Array<{ domain: string; duration_seconds: number; session_count: number }> };
+  employee_count: number;
+}
+
+export interface EmployeeRankingItem {
+  user_id: number;
+  username: string;
+  focus_score: number;
+  productive_time: number;
+  total_active_time: number;
+}
+
+export interface EmployeeRankings {
+  rankings: EmployeeRankingItem[];
+}
+
+export interface TimelineItem {
+  session_id: number;
+  start_time: string;
+  end_time: string;
+  duration_seconds: number;
+  website_url: string | null;
+  website_domain: string | null;
+  category: string | null;
+  productivity: string | null;
+  type: 'activity' | 'idle';
+  user_id?: number;
+  user_name?: string;
+  employee_name?: string;
+  employee_email?: string;
+}

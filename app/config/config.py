@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     SESSION_BATCH_SIZE: int = 50
 
     # CORS — comma-separated list of allowed origins
-    # DEVELOPMENT: Includes chrome-extension:// for extension development
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000,chrome-extension://*"
+    # DEVELOPMENT: Includes chrome-extension:// for extension development and Vite dev server
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://localhost:8000,chrome-extension://*"
 
     # SMTP / Email Service Configuration
     SMTP_HOST: str = ""
